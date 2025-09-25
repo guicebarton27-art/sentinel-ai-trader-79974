@@ -55,6 +55,23 @@ export default {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
         },
+        error: {
+          DEFAULT: "hsl(var(--error))",
+          foreground: "hsl(var(--error-foreground))",
+        },
+        
+        // Quant trading colors
+        "algo-primary": "hsl(var(--algo-primary))",
+        "algo-secondary": "hsl(var(--algo-secondary))",
+        execution: "hsl(var(--execution))",
+        risk: "hsl(var(--risk))",
+        neutral: "hsl(var(--neutral))",
+        
+        // Performance indicators
+        sharpe: "hsl(var(--sharpe))",
+        sortino: "hsl(var(--sortino))",
+        drawdown: "hsl(var(--drawdown))",
+        alpha: "hsl(var(--alpha))",
         chart: {
           "1": "hsl(var(--chart-1))",
           "2": "hsl(var(--chart-2))",
@@ -77,6 +94,16 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      backgroundImage: {
+        "gradient-quant": "var(--gradient-quant)",
+        "gradient-performance": "var(--gradient-performance)",
+        "gradient-risk": "var(--gradient-risk)",
+      },
+      boxShadow: {
+        "quant": "var(--shadow-quant)",
+        "performance": "var(--shadow-performance)",
+        "risk": "var(--shadow-risk)",
       },
       keyframes: {
         "accordion-down": {

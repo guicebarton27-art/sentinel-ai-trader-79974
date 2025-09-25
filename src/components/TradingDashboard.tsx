@@ -19,6 +19,9 @@ import { PortfolioOverview } from './trading/PortfolioOverview';
 import { MarketData } from './trading/MarketData';
 import { BotControls } from './trading/BotControls';
 import { TradingChart } from './trading/TradingChart';
+import { StrategyEngine } from './trading/StrategyEngine';
+import { RiskEngine } from './trading/RiskEngine';
+import { ExecutionRouter } from './trading/ExecutionRouter';
 
 export const TradingDashboard = () => {
   const [botStatus, setBotStatus] = useState<'running' | 'paused' | 'stopped'>('stopped');
@@ -133,12 +136,14 @@ export const TradingDashboard = () => {
 
       {/* Main Content */}
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="strategies">Strategies</TabsTrigger>
+          <TabsTrigger value="execution">Execution</TabsTrigger>
+          <TabsTrigger value="risk">Risk Engine</TabsTrigger>
           <TabsTrigger value="market">Market Data</TabsTrigger>
           <TabsTrigger value="bot">Bot Controls</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -146,6 +151,18 @@ export const TradingDashboard = () => {
             <PortfolioOverview data={portfolioData} />
             <TradingChart />
           </div>
+        </TabsContent>
+
+        <TabsContent value="strategies" className="space-y-4">
+          <StrategyEngine />
+        </TabsContent>
+
+        <TabsContent value="execution" className="space-y-4">
+          <ExecutionRouter />
+        </TabsContent>
+
+        <TabsContent value="risk" className="space-y-4">
+          <RiskEngine />
         </TabsContent>
 
         <TabsContent value="market" className="space-y-4">
@@ -167,16 +184,6 @@ export const TradingDashboard = () => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="settings" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Bot Configuration</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">Bot settings and API configuration coming soon...</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   );
