@@ -22,6 +22,7 @@ import { TradingChart } from './trading/TradingChart';
 import { StrategyEngine } from './trading/StrategyEngine';
 import { RiskEngine } from './trading/RiskEngine';
 import { ExecutionRouter } from './trading/ExecutionRouter';
+import { ApiKeyManager } from './trading/ApiKeyManager';
 
 export const TradingDashboard = () => {
   const [botStatus, setBotStatus] = useState<'running' | 'paused' | 'stopped'>('stopped');
@@ -136,13 +137,14 @@ export const TradingDashboard = () => {
 
       {/* Main Content */}
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-7">
+        <TabsList className="grid w-full grid-cols-8">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="strategies">Strategies</TabsTrigger>
           <TabsTrigger value="execution">Execution</TabsTrigger>
           <TabsTrigger value="risk">Risk Engine</TabsTrigger>
           <TabsTrigger value="market">Market Data</TabsTrigger>
           <TabsTrigger value="bot">Bot Controls</TabsTrigger>
+          <TabsTrigger value="keys">API Keys</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
 
@@ -171,6 +173,10 @@ export const TradingDashboard = () => {
 
         <TabsContent value="bot" className="space-y-4">
           <BotControls botStatus={botStatus} onStatusChange={setBotStatus} />
+        </TabsContent>
+
+        <TabsContent value="keys" className="space-y-4">
+          <ApiKeyManager />
         </TabsContent>
 
         <TabsContent value="analytics" className="space-y-4">
