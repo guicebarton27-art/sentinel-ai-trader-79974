@@ -149,62 +149,89 @@ export const TradingDashboard = () => {
         </div>
       )}
 
-      {/* Main Content */}
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-8">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="strategies">Strategies</TabsTrigger>
-          <TabsTrigger value="execution">Execution</TabsTrigger>
-          <TabsTrigger value="risk">Risk Engine</TabsTrigger>
-          <TabsTrigger value="market">Market Data</TabsTrigger>
-          <TabsTrigger value="bot">Bot Controls</TabsTrigger>
-          <TabsTrigger value="keys">API Keys</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
-        </TabsList>
+      {/* Main Content Tabs - Streamlined Layout */}
+      <div className="pb-20"> {/* Add padding bottom for sticky footer */}
+        <Tabs defaultValue="dashboard" className="space-y-4">
+          <TabsList className="grid w-full grid-cols-6">
+            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+            <TabsTrigger value="strategies">Strategies</TabsTrigger>
+            <TabsTrigger value="risk">Risk</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
+            <TabsTrigger value="execution">Execution</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
+          <TabsContent value="dashboard" className="space-y-4">
             <PortfolioOverview data={portfolioData} />
-            <TradingChart />
-          </div>
-        </TabsContent>
+          </TabsContent>
 
-        <TabsContent value="strategies" className="space-y-4">
-          <StrategyEngine />
-        </TabsContent>
+          <TabsContent value="strategies" className="space-y-4">
+            <StrategyEngine />
+          </TabsContent>
 
-        <TabsContent value="execution" className="space-y-4">
-          <ExecutionRouter />
-        </TabsContent>
+          <TabsContent value="risk" className="space-y-4">
+            <div className="space-y-4">
+              <RiskEngine />
+              <CollapsibleRiskPanel metrics={riskMetrics} />
+            </div>
+          </TabsContent>
 
-        <TabsContent value="risk" className="space-y-4">
-          <RiskEngine />
-        </TabsContent>
+          <TabsContent value="analytics" className="space-y-4">
+            <div className="space-y-4">
+              <TradingChart />
+              <MarketData />
+            </div>
+          </TabsContent>
 
-        <TabsContent value="market" className="space-y-4">
-          <MarketData />
-        </TabsContent>
+          <TabsContent value="execution" className="space-y-4">
+            <div className="space-y-4">
+              <ExecutionRouter />
+              <CompactExecutionPanel metrics={executionMetrics} />
+            </div>
+          </TabsContent>
 
-        <TabsContent value="bot" className="space-y-4">
-          <BotControls botStatus={botStatus} onStatusChange={setBotStatus} />
-        </TabsContent>
+          <TabsContent value="settings" className="space-y-4">
+            <div className="space-y-4">
+              <ApiKeyManager />
+              <BotControls botStatus={botStatus} onStatusChange={setBotStatus} />
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
 
-        <TabsContent value="keys" className="space-y-4">
-          <ApiKeyManager />
-        </TabsContent>
-
-        <TabsContent value="analytics" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Performance Analytics</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">Advanced analytics and performance metrics coming soon...</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-      </Tabs>
+      {/* Sticky Bot Controls Footer */}
+      <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t p-4 flex justify-center gap-4 z-50">
+        <Button 
+          onClick={() => setBotStatus('running')} 
+          disabled={botStatus === 'running'}
+          className="bg-green-600 hover:bg-green-700"
+        >
+          <Play className="h-4 w-4 mr-2" />
+          Start Bot
+        </Button>
+        <Button 
+          onClick={() => setBotStatus('paused')} 
+          disabled={botStatus === 'paused'}
+          variant="outline"
+        >
+          <Pause className="h-4 w-4 mr-2" />
+          Pause Bot
+        </Button>
+        <Button 
+          onClick={() => setBotStatus('stopped')} 
+          disabled={botStatus === 'stopped'}
+          variant="outline"
+        >
+          Stop Bot
+        </Button>
+        <Button 
+          onClick={handleKillSwitch}
+          variant="destructive"
+          className="ml-4"
+        >
+          🛑 Kill Switch
+        </Button>
+      </div>
     </div>
   );
 };
