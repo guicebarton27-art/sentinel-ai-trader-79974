@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
 import { 
   Activity, 
   Bot, 
@@ -13,8 +14,13 @@ import {
   Play,
   Pause,
   BarChart3,
-  AlertTriangle
+  AlertTriangle,
+  Minimize2
 } from 'lucide-react';
+import { CriticalPanel } from './trading/CriticalPanel';
+import { CompactExecutionPanel } from './trading/CompactExecutionPanel';
+import { CollapsibleRiskPanel } from './trading/CollapsibleRiskPanel';
+import { CompactStrategyPanel } from './trading/CompactStrategyPanel';
 import { PortfolioOverview } from './trading/PortfolioOverview';
 import { MarketData } from './trading/MarketData';
 import { BotControls } from './trading/BotControls';
@@ -26,17 +32,78 @@ import { ApiKeyManager } from './trading/ApiKeyManager';
 
 export const TradingDashboard = () => {
   const [botStatus, setBotStatus] = useState<'running' | 'paused' | 'stopped'>('stopped');
+  const [minimalMode, setMinimalMode] = useState(false);
 
   const portfolioData = {
     totalValue: 125840.32,
     pnl: 2340.45,
     pnlPercentage: 1.89,
+    totalPnlPercentage: 8.7,
     availableBalance: 45230.10,
     positions: [
       { symbol: 'BTC/USD', size: 0.5, value: 32150.25, pnl: 1250.30, pnlPercentage: 4.05 },
       { symbol: 'ETH/USD', size: 2.1, value: 5243.50, pnl: -156.20, pnlPercentage: -2.89 },
       { symbol: 'XRP/USD', size: 1000, value: 620.00, pnl: 45.80, pnlPercentage: 7.98 }
     ]
+  };
+
+  const executionMetrics = {
+    fillRate: 98.2,
+    slippage: 0.08,
+    latency: 11,
+    ordersToday: 279
+  };
+
+  const riskMetrics = {
+    var: 2.1,
+    maxDrawdown: 12.5,
+    correlationRisk: 72,
+    positionSize: 75000,
+    positionLimit: 100000,
+    dailyLoss: -1200,
+    dailyLossLimit: 5000
+  };
+
+  const strategies = [
+    {
+      id: 'trend-001',
+      name: 'Momentum Alpha',
+      type: 'trend' as const,
+      status: 'active' as const,
+      allocation: 35,
+      sharpe: 1.85,
+      drawdown: 8.5,
+      pnl: 12500,
+      pnlPercentage: 4.2
+    },
+    {
+      id: 'breakout-002', 
+      name: 'Volatility Breakout',
+      type: 'breakout' as const,
+      status: 'active' as const,
+      allocation: 25,
+      sharpe: 1.62,
+      drawdown: 12.1,
+      pnl: -1200,
+      pnlPercentage: -1.8
+    },
+    {
+      id: 'mean-003',
+      name: 'Mean Reversion Pro', 
+      type: 'mean-revert' as const,
+      status: 'paused' as const,
+      allocation: 20,
+      sharpe: 1.23,
+      drawdown: 15.3,
+      pnl: 2300,
+      pnlPercentage: 2.1
+    }
+  ];
+
+  const handleKillSwitch = () => {
+    setBotStatus('stopped');
+    // Additional kill switch logic would go here
+    console.log('EMERGENCY STOP - All positions closing');
   };
 
   return (
@@ -49,23 +116,11 @@ export const TradingDashboard = () => {
         </div>
         
         <div className="flex items-center gap-4">
-          <Badge 
-            variant={botStatus === 'running' ? 'default' : botStatus === 'paused' ? 'secondary' : 'outline'}
-            className="flex items-center gap-1"
-          >
-            <Bot className="h-3 w-3" />
-            Bot {botStatus === 'running' ? 'Active' : botStatus === 'paused' ? 'Paused' : 'Inactive'}
-          </Badge>
-          
-          <Button
-            variant={botStatus === 'running' ? 'destructive' : 'default'}
-            size="sm"
-            onClick={() => setBotStatus(botStatus === 'running' ? 'stopped' : 'running')}
-            className="flex items-center gap-2"
-          >
-            {botStatus === 'running' ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            {botStatus === 'running' ? 'Stop Bot' : 'Start Bot'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Minimize2 className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Minimal Mode</span>
+            <Switch checked={minimalMode} onCheckedChange={setMinimalMode} />
+          </div>
           
           <Button variant="outline" size="sm">
             <Settings className="h-4 w-4" />
@@ -73,67 +128,26 @@ export const TradingDashboard = () => {
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Portfolio Value</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${portfolioData.totalValue.toLocaleString()}</div>
-            <div className="flex items-center text-xs text-muted-foreground">
-              <TrendingUp className="h-3 w-3 mr-1 text-success" />
-              +2.3% from last week
-            </div>
-          </CardContent>
-        </Card>
+      {/* Critical Panel - Always Visible */}
+      <CriticalPanel
+        portfolioPnl={portfolioData.pnl}
+        portfolioPnlPercentage={portfolioData.pnlPercentage}
+        totalPnlPercentage={portfolioData.totalPnlPercentage}
+        currentDrawdown={5.2}
+        riskScore="warning"
+        botStatus={botStatus}
+        onBotStatusChange={setBotStatus}
+        onKillSwitch={handleKillSwitch}
+      />
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Daily P&L</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${portfolioData.pnl > 0 ? 'text-success' : 'text-destructive'}`}>
-              {portfolioData.pnl > 0 ? '+' : ''}${portfolioData.pnl.toLocaleString()}
-            </div>
-            <div className={`flex items-center text-xs ${portfolioData.pnl > 0 ? 'text-success' : 'text-destructive'}`}>
-              {portfolioData.pnl > 0 ? 
-                <TrendingUp className="h-3 w-3 mr-1" /> : 
-                <TrendingDown className="h-3 w-3 mr-1" />
-              }
-              {portfolioData.pnl > 0 ? '+' : ''}{portfolioData.pnlPercentage}%
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Positions</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{portfolioData.positions.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Across crypto pairs
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Risk Level</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-warning">Medium</div>
-            <p className="text-xs text-muted-foreground">
-              Within target range
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Expandable Panels - Hidden in Minimal Mode */}
+      {!minimalMode && (
+        <div className="space-y-4">
+          <CompactExecutionPanel metrics={executionMetrics} />
+          <CollapsibleRiskPanel metrics={riskMetrics} />
+          <CompactStrategyPanel strategies={strategies} />
+        </div>
+      )}
 
       {/* Main Content */}
       <Tabs defaultValue="overview" className="space-y-4">
