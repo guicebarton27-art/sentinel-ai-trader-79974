@@ -1,14 +1,10 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { 
   Bot, 
   TrendingUp, 
   TrendingDown, 
-  AlertTriangle,
-  Play,
-  Pause,
-  Power
+  AlertTriangle
 } from 'lucide-react';
 
 interface CriticalPanelProps {
@@ -18,8 +14,6 @@ interface CriticalPanelProps {
   currentDrawdown: number;
   riskScore: 'safe' | 'warning' | 'danger';
   botStatus: 'running' | 'paused' | 'stopped';
-  onBotStatusChange: (status: 'running' | 'paused' | 'stopped') => void;
-  onKillSwitch: () => void;
 }
 
 export const CriticalPanel = ({ 
@@ -28,9 +22,7 @@ export const CriticalPanel = ({
   totalPnlPercentage,
   currentDrawdown,
   riskScore,
-  botStatus,
-  onBotStatusChange,
-  onKillSwitch
+  botStatus
 }: CriticalPanelProps) => {
   const getRiskColor = (score: string) => {
     switch (score) {
@@ -53,7 +45,7 @@ export const CriticalPanel = ({
   return (
     <Card className="border-2">
       <CardContent className="p-6">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 items-center">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-center">
           {/* Portfolio P&L */}
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground font-medium">Today P&L</p>
@@ -96,36 +88,11 @@ export const CriticalPanel = ({
             <p className="text-xs text-muted-foreground font-medium">Bot Status</p>
             <Badge 
               variant={botStatus === 'running' ? 'default' : botStatus === 'paused' ? 'secondary' : 'outline'}
-              className="justify-center"
+              className="justify-center w-full"
             >
               <Bot className="h-3 w-3 mr-1" />
               {botStatus === 'running' ? 'Active' : botStatus === 'paused' ? 'Paused' : 'Inactive'}
             </Badge>
-            <div className="flex gap-1">
-              <Button
-                variant={botStatus === 'running' ? 'destructive' : 'default'}
-                size="sm"
-                className="flex-1 h-6 px-2 text-xs"
-                onClick={() => onBotStatusChange(botStatus === 'running' ? 'stopped' : 'running')}
-              >
-                {botStatus === 'running' ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-              </Button>
-            </div>
-          </div>
-
-          {/* Kill Switch */}
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground font-medium">Emergency</p>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="w-full h-8 font-bold"
-              onClick={onKillSwitch}
-            >
-              <Power className="h-4 w-4 mr-1" />
-              KILL
-            </Button>
-            <p className="text-xs text-muted-foreground">Close all positions</p>
           </div>
         </div>
       </CardContent>

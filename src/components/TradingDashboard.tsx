@@ -136,8 +136,6 @@ export const TradingDashboard = () => {
         currentDrawdown={5.2}
         riskScore="warning"
         botStatus={botStatus}
-        onBotStatusChange={setBotStatus}
-        onKillSwitch={handleKillSwitch}
       />
 
       {/* Expandable Panels - Hidden in Minimal Mode */}
