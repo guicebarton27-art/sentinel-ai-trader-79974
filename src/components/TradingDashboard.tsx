@@ -29,6 +29,8 @@ import { StrategyEngine } from './trading/StrategyEngine';
 import { RiskEngine } from './trading/RiskEngine';
 import { ExecutionRouter } from './trading/ExecutionRouter';
 import { ApiKeyManager } from './trading/ApiKeyManager';
+import { BacktestPanel } from './trading/BacktestPanel';
+import { BacktestResults } from './trading/BacktestResults';
 import { useTradingBot } from '@/hooks/useTradingBot';
 import { useToast } from '@/hooks/use-toast';
 
@@ -196,6 +198,7 @@ export const TradingDashboard = () => {
 
           <TabsContent value="analytics" className="space-y-4">
             <div className="space-y-4">
+              <BacktestResults />
               <TradingChart />
               <MarketData />
             </div>
@@ -210,6 +213,7 @@ export const TradingDashboard = () => {
 
           <TabsContent value="settings" className="space-y-4">
             <div className="space-y-4">
+              <BacktestPanel />
               <ApiKeyManager />
               <BotControls 
                 botStatus={botStatus} 

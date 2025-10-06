@@ -2,3 +2,9 @@ project_id = "quqbcaxekircoafovood"
 
 [functions.bot-engine]
 verify_jwt = false
+
+[functions.fetch-historical-data]
+verify_jwt = false
+
+[functions.run-backtest]
+verify_jwt = false
