@@ -29,10 +29,15 @@ import { StrategyEngine } from './trading/StrategyEngine';
 import { RiskEngine } from './trading/RiskEngine';
 import { ExecutionRouter } from './trading/ExecutionRouter';
 import { ApiKeyManager } from './trading/ApiKeyManager';
+import { useTradingBot } from '@/hooks/useTradingBot';
+import { useToast } from '@/hooks/use-toast';
 
 export const TradingDashboard = () => {
-  const [botStatus, setBotStatus] = useState<'running' | 'paused' | 'stopped'>('stopped');
   const [minimalMode, setMinimalMode] = useState(false);
+  const { telemetry, isConnected, controlBot } = useTradingBot();
+  const { toast } = useToast();
+  
+  const botStatus = telemetry?.status || 'stopped';
 
   const portfolioData = {
     totalValue: 125840.32,
@@ -51,7 +56,7 @@ export const TradingDashboard = () => {
     fillRate: 98.2,
     slippage: 0.08,
     latency: 11,
-    ordersToday: 279
+    ordersToday: telemetry?.ordersToday || 0
   };
 
   const riskMetrics = {
@@ -100,10 +105,20 @@ export const TradingDashboard = () => {
     }
   ];
 
-  const handleKillSwitch = () => {
-    setBotStatus('stopped');
-    // Additional kill switch logic would go here
-    console.log('EMERGENCY STOP - All positions closing');
+  const handleBotControl = async (action: 'start' | 'pause' | 'stop' | 'kill', mode?: 'paper' | 'live') => {
+    try {
+      await controlBot(action, mode ? { mode } : undefined);
+      toast({
+        title: `Bot ${action}ed`,
+        description: action === 'kill' ? 'Emergency stop activated' : `Bot is now ${action === 'start' ? 'running' : action === 'pause' ? 'paused' : 'stopped'}`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: `Failed to ${action} bot`,
+        variant: 'destructive',
+      });
+    }
   };
 
   return (
@@ -116,6 +131,11 @@ export const TradingDashboard = () => {
         </div>
         
         <div className="flex items-center gap-4">
+          <Badge variant={isConnected ? 'default' : 'destructive'} className="gap-1">
+            <Activity className="h-3 w-3" />
+            {isConnected ? 'Connected' : 'Disconnected'}
+          </Badge>
+          
           <div className="flex items-center gap-2">
             <Minimize2 className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm text-muted-foreground">Minimal Mode</span>
@@ -191,7 +211,14 @@ export const TradingDashboard = () => {
           <TabsContent value="settings" className="space-y-4">
             <div className="space-y-4">
               <ApiKeyManager />
-              <BotControls botStatus={botStatus} onStatusChange={setBotStatus} />
+              <BotControls 
+                botStatus={botStatus} 
+                onStatusChange={(status) => {
+                  if (status === 'running') handleBotControl('start', 'paper');
+                  else if (status === 'paused') handleBotControl('pause');
+                  else handleBotControl('stop');
+                }} 
+              />
             </div>
           </TabsContent>
         </Tabs>
@@ -200,30 +227,31 @@ export const TradingDashboard = () => {
       {/* Sticky Bot Controls Footer */}
       <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t p-4 flex justify-center gap-4 z-50">
         <Button 
-          onClick={() => setBotStatus('running')} 
-          disabled={botStatus === 'running'}
+          onClick={() => handleBotControl('start', 'paper')} 
+          disabled={botStatus === 'running' || !isConnected}
           className="bg-green-600 hover:bg-green-700"
         >
           <Play className="h-4 w-4 mr-2" />
           Start Bot
         </Button>
         <Button 
-          onClick={() => setBotStatus('paused')} 
-          disabled={botStatus === 'paused'}
+          onClick={() => handleBotControl('pause')} 
+          disabled={botStatus === 'paused' || !isConnected}
           variant="outline"
         >
           <Pause className="h-4 w-4 mr-2" />
           Pause Bot
         </Button>
         <Button 
-          onClick={() => setBotStatus('stopped')} 
-          disabled={botStatus === 'stopped'}
+          onClick={() => handleBotControl('stop')} 
+          disabled={botStatus === 'stopped' || !isConnected}
           variant="outline"
         >
           Stop Bot
         </Button>
         <Button 
-          onClick={handleKillSwitch}
+          onClick={() => handleBotControl('kill')}
+          disabled={!isConnected}
           variant="destructive"
           className="ml-4"
         >

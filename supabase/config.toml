@@ -1,0 +1,7 @@
+project_id = "quqbcaxekircoafovood"
+
+[functions.bot-telemetry]
+verify_jwt = false
+
+[functions.bot-control]
+verify_jwt = false
