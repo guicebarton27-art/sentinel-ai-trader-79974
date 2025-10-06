@@ -40,11 +40,11 @@ export const TradingDashboard = () => {
   const botStatus = telemetry?.status || 'stopped';
 
   const portfolioData = {
-    totalValue: 125840.32,
-    pnl: 2340.45,
-    pnlPercentage: 1.89,
-    totalPnlPercentage: 8.7,
-    availableBalance: 45230.10,
+    totalValue: telemetry?.nav || 1000000,
+    pnl: telemetry?.pnl || 0,
+    pnlPercentage: telemetry?.pnlPercentage || 0,
+    totalPnlPercentage: telemetry?.pnlPercentage || 0,
+    availableBalance: (telemetry?.nav || 1000000) * 0.35,
     positions: [
       { symbol: 'BTC/USD', size: 0.5, value: 32150.25, pnl: 1250.30, pnlPercentage: 4.05 },
       { symbol: 'ETH/USD', size: 2.1, value: 5243.50, pnl: -156.20, pnlPercentage: -2.89 },

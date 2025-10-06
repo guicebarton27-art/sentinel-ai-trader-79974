@@ -5,6 +5,9 @@ interface BotTelemetry {
   status: 'running' | 'paused' | 'stopped';
   mode: 'paper' | 'live';
   nav: number;
+  startingNav: number;
+  pnl: number;
+  pnlPercentage: number;
   ordersToday: number;
   timestamp: number;
 }
@@ -16,7 +19,7 @@ export const useTradingBot = () => {
 
   useEffect(() => {
     const projectRef = 'quqbcaxekircoafovood';
-    const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/bot-telemetry`;
+    const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/bot-engine`;
 
     console.log('Connecting to trading bot WebSocket:', wsUrl);
 
@@ -36,6 +39,9 @@ export const useTradingBot = () => {
             status: data.status,
             mode: data.mode,
             nav: data.nav,
+            startingNav: data.startingNav,
+            pnl: data.pnl,
+            pnlPercentage: data.pnlPercentage,
             ordersToday: data.ordersToday,
             timestamp: data.timestamp,
           });
@@ -63,7 +69,7 @@ export const useTradingBot = () => {
   const controlBot = useCallback(
     async (action: 'start' | 'pause' | 'stop' | 'kill', options?: { mode?: 'paper' | 'live' }) => {
       try {
-        const { data, error } = await supabase.functions.invoke(`bot-control/${action}`, {
+        const { data, error } = await supabase.functions.invoke(`bot-engine/${action}`, {
           body: options || {},
         });
 

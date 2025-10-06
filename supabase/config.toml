@@ -1,7 +1,4 @@
 project_id = "quqbcaxekircoafovood"
 
-[functions.bot-telemetry]
-verify_jwt = false
-
-[functions.bot-control]
+[functions.bot-engine]
 verify_jwt = false
