@@ -30,6 +30,8 @@ import { RiskEngine } from './trading/RiskEngine';
 import { ExecutionRouter } from './trading/ExecutionRouter';
 import { SentimentAnalysis } from './trading/SentimentAnalysis';
 import { ArbitrageDetector } from './trading/ArbitrageDetector';
+import { PricePrediction } from './trading/PricePrediction';
+import { StrategyRecommendation } from './trading/StrategyRecommendation';
 import { ApiKeyManager } from './trading/ApiKeyManager';
 import { BacktestPanel } from './trading/BacktestPanel';
 import { BacktestResults } from './trading/BacktestResults';
@@ -185,6 +187,10 @@ export const TradingDashboard = () => {
 
           <TabsContent value="dashboard" className="space-y-4">
             <PortfolioOverview data={portfolioData} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+              <PricePrediction />
+              <StrategyRecommendation />
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
               <SentimentAnalysis />
               <ArbitrageDetector />

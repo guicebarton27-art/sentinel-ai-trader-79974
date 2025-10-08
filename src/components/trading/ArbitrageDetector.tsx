@@ -1,115 +1,112 @@
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, TrendingUp, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, TrendingUp, Zap, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface ArbitrageOpportunity {
-  id: string;
   path: string[];
-  profitPct: number;
+  profitPercentage: number;
   volume: number;
-  expires: number;
-  confidence: "high" | "medium" | "low";
+  timestamp: number;
 }
 
 export const ArbitrageDetector = () => {
-  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([
-    {
-      id: "1",
-      path: ["BTC/USD", "USD/ETH", "ETH/BTC"],
-      profitPct: 0.34,
-      volume: 5200,
-      expires: Date.now() + 45000,
-      confidence: "high"
-    },
-    {
-      id: "2",
-      path: ["ETH/USD", "USD/SOL", "SOL/ETH"],
-      profitPct: 0.18,
-      volume: 3100,
-      expires: Date.now() + 32000,
-      confidence: "medium"
-    }
-  ]);
+  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
-  const getConfidenceBadge = (confidence: string): "default" | "secondary" | "outline" => {
-    const variants: Record<string, "default" | "secondary" | "outline"> = {
-      high: "default",
-      medium: "secondary",
-      low: "outline"
-    };
-    return variants[confidence] || "outline";
+  const fetchArbitrage = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('detect-arbitrage', {
+        body: {}
+      });
+
+      if (error) throw error;
+      
+      if (data.success) {
+        setOpportunities(data.opportunities);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error detecting arbitrage",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
+  useEffect(() => {
+    fetchArbitrage();
+    const interval = setInterval(fetchArbitrage, 60000); // Refresh every minute
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <Card className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-primary" />
-          <h3 className="text-lg font-semibold">Arbitrage Opportunities</h3>
+    <Card className="bg-gradient-to-br from-card via-card to-execution/5 border-execution/20 shadow-performance">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Zap className="h-5 w-5 text-execution" />
+            Arbitrage Opportunities
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="border-execution/30 text-execution">
+              {opportunities.length} Active
+            </Badge>
+            <RefreshCw 
+              className={`h-4 w-4 text-muted-foreground cursor-pointer hover:text-execution transition-colors ${loading ? 'animate-spin' : ''}`}
+              onClick={fetchArbitrage}
+            />
+          </div>
         </div>
-        <Badge variant="outline">
-          {opportunities.length} Active
-        </Badge>
-      </div>
+      </CardHeader>
 
-      {opportunities.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">No arbitrage opportunities detected</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {opportunities.map((opp) => (
-            <div key={opp.id} className="p-4 rounded-lg border bg-card">
-              <div className="flex items-center justify-between mb-3">
-                <Badge variant={getConfidenceBadge(opp.confidence)}>
-                  {opp.confidence.toUpperCase()}
-                </Badge>
-                <span className="text-lg font-bold text-emerald-500">
-                  +{opp.profitPct.toFixed(2)}%
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 mb-3 text-sm">
-                {opp.path.map((pair, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <span className="font-medium">{pair}</span>
-                    {idx < opp.path.length - 1 && (
-                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                    )}
+      <CardContent>
+        <div className="space-y-3">
+          {loading && opportunities.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">Scanning for opportunities...</div>
+          ) : opportunities.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">No profitable opportunities found</div>
+          ) : (
+            opportunities.map((opp, idx) => (
+              <div key={idx} className="p-4 rounded-lg bg-gradient-to-r from-secondary/60 to-secondary/30 border border-border/50 hover:border-execution/30 transition-all space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm">
+                    {opp.path.map((asset, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="font-mono font-medium">{asset}</span>
+                        {i < opp.path.length - 1 && <ArrowRight className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between text-sm">
-                <div className="text-muted-foreground">
-                  Volume: ${opp.volume.toLocaleString()}
+                  <Badge variant="default" className="gap-1 bg-execution/20 text-execution border-execution/30">
+                    <TrendingUp className="h-3 w-3" />
+                    +{opp.profitPercentage.toFixed(2)}%
+                  </Badge>
                 </div>
-                <div className="text-muted-foreground">
-                  Expires: {Math.floor((opp.expires - Date.now()) / 1000)}s
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Est. Volume: ${opp.volume.toLocaleString()}
+                  </div>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-execution/30 hover:bg-execution/10">
+                    Execute
+                  </Button>
                 </div>
               </div>
+            ))
+          )}
+        </div>
 
-              <Button className="w-full mt-3" size="sm">
-                Execute Arbitrage
-              </Button>
-            </div>
-          ))}
+        <div className="mt-4 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+          Scanning triangular arbitrage paths every 60 seconds
         </div>
-      )}
-
-      <div className="mt-4 pt-4 border-t">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Scan frequency</span>
-          <span className="font-medium">Every 60s</span>
-        </div>
-        <div className="flex items-center justify-between text-sm mt-2">
-          <span className="text-muted-foreground">Min profit threshold</span>
-          <span className="font-medium">0.2%</span>
-        </div>
-      </div>
+      </CardContent>
     </Card>
   );
 };
