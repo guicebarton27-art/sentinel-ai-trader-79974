@@ -1,7 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Activity, Brain } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Brain, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface Prediction {
   timeframe: string;
@@ -10,14 +12,45 @@ interface Prediction {
   confidence: number;
   direction: "up" | "down";
   change: number;
+  reasoning?: string;
 }
 
 export const PricePrediction = () => {
-  const [predictions, setPredictions] = useState<Prediction[]>([
-    { timeframe: "1H", currentPrice: 42350.25, predictedPrice: 42580.50, confidence: 0.82, direction: "up", change: 0.54 },
-    { timeframe: "4H", currentPrice: 42350.25, predictedPrice: 43120.75, confidence: 0.76, direction: "up", change: 1.82 },
-    { timeframe: "24H", currentPrice: 42350.25, predictedPrice: 41890.00, confidence: 0.68, direction: "down", change: -1.09 }
-  ]);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const { toast } = useToast();
+
+  const fetchPredictions = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.functions.invoke('predict-price', {
+        body: { symbol: 'BTC/USD', timeframes: ['1H', '4H', '24H'] }
+      });
+
+      if (error) throw error;
+
+      if (data?.predictions) {
+        setPredictions(data.predictions);
+        setLastUpdate(new Date());
+      }
+    } catch (error: any) {
+      console.error('Error fetching predictions:', error);
+      toast({
+        title: "Prediction Error",
+        description: error.message || "Failed to fetch predictions",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPredictions();
+    const interval = setInterval(fetchPredictions, 300000); // Update every 5 minutes
+    return () => clearInterval(interval);
+  }, []);
 
   const getConfidenceColor = (confidence: number) => {
     if (confidence >= 0.75) return "text-success";
@@ -37,17 +70,37 @@ export const PricePrediction = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Brain className="h-5 w-5 text-algo-primary" />
-            <CardTitle className="text-lg">LSTM Price Predictions</CardTitle>
+            <CardTitle className="text-lg">AI Price Predictions</CardTitle>
           </div>
-          <Badge variant="outline" className="gap-1 border-algo-primary/30 text-algo-primary">
-            <Activity className="h-3 w-3" />
-            Live
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="gap-1 border-algo-primary/30 text-algo-primary">
+              <Activity className="h-3 w-3" />
+              Live AI
+            </Badge>
+            <button
+              onClick={fetchPredictions}
+              disabled={loading}
+              className="p-1 hover:bg-secondary/50 rounded transition-colors"
+              title="Refresh predictions"
+            >
+              <RefreshCw className={`h-4 w-4 text-algo-primary ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {predictions.map((pred, idx) => (
+        {loading && predictions.length === 0 ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <RefreshCw className="h-5 w-5 animate-spin mr-2" />
+            Generating AI predictions...
+          </div>
+        ) : predictions.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No predictions available. Please fetch historical data first.
+          </div>
+        ) : (
+          predictions.map((pred, idx) => (
           <div 
             key={idx} 
             className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-r from-secondary/50 to-secondary/30 border border-border/50 hover:border-algo-primary/30 transition-all"
@@ -81,12 +134,15 @@ export const PricePrediction = () => {
               </span>
             </div>
           </div>
-        ))}
+          ))
+        )}
 
-        <div className="mt-4 pt-3 border-t border-border/50 flex items-center justify-between text-xs text-muted-foreground">
-          <span>Model: LSTM Neural Network</span>
-          <span>Last trained: 2h ago</span>
-        </div>
+        {lastUpdate && (
+          <div className="mt-4 pt-3 border-t border-border/50 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Model: Gemini 2.5 Flash (Google AI)</span>
+            <span>Last updated: {lastUpdate.toLocaleTimeString()}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

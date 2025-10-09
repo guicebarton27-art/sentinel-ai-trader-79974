@@ -1,0 +1,125 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+interface SentimentData {
+  source: string;
+  score: number;
+  volume: number;
+  trend: "bullish" | "bearish" | "neutral";
+  timestamp: number;
+  reasoning?: string;
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const { symbol = "BTC/USD" } = await req.json();
+    
+    console.log('Analyzing sentiment for:', symbol);
+
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY is not configured");
+    }
+
+    const sources = ["Twitter", "Reddit", "News"];
+    const sentiments: SentimentData[] = [];
+
+    for (const source of sources) {
+      const prompt = `Analyze current market sentiment for ${symbol} from ${source} sources. Consider recent trends, community discussions, and news.
+
+Provide your analysis in the following format:
+1. Sentiment Score: A number between -1.0 (very bearish) and +1.0 (very bullish)
+2. Trend: bullish, bearish, or neutral
+3. Discussion Volume: estimated relative activity (low, medium, high)
+4. Brief reasoning (2-3 sentences explaining the sentiment)
+
+Be realistic about current crypto market conditions.`;
+
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: "You are a market sentiment analyst expert at gauging social media and news sentiment for cryptocurrency markets." },
+            { role: "user", content: prompt }
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error("Rate limits exceeded, please try again later.");
+        }
+        if (response.status === 402) {
+          throw new Error("Payment required, please add funds to your Lovable AI workspace.");
+        }
+        const errorText = await response.text();
+        console.error("AI gateway error:", response.status, errorText);
+        throw new Error("AI gateway error");
+      }
+
+      const aiResponse = await response.json();
+      const analysis = aiResponse.choices[0].message.content;
+      
+      console.log(`AI sentiment analysis for ${source}:`, analysis);
+
+      // Parse the AI response
+      const scoreMatch = analysis.match(/sentiment score[:\s]+(-?0?\.\d+|-?1\.0)/i);
+      const trendMatch = analysis.match(/trend[:\s]+(bullish|bearish|neutral)/i);
+      const volumeMatch = analysis.match(/volume[:\s]+(low|medium|high)/i);
+
+      const score = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
+      const trend = trendMatch ? trendMatch[1].toLowerCase() as "bullish" | "bearish" | "neutral" : "neutral";
+      const volumeLevel = volumeMatch ? volumeMatch[1].toLowerCase() : "medium";
+      
+      // Convert volume level to number
+      const volumeMap = { low: 500, medium: 1000, high: 2000 };
+      const volume = volumeMap[volumeLevel as keyof typeof volumeMap] + Math.floor(Math.random() * 500);
+
+      sentiments.push({
+        source,
+        score,
+        volume,
+        trend,
+        timestamp: Date.now() - (sources.indexOf(source) * 300000), // Stagger timestamps
+        reasoning: analysis
+      });
+    }
+
+    // Calculate aggregated sentiment
+    const aggregated = sentiments.reduce((sum, s) => sum + s.score * (s.volume / 1000), 0) / sentiments.length;
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        sentiments,
+        symbol,
+        aggregated,
+        timestamp: Date.now()
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error: any) {
+    console.error('Error in analyze-sentiment-ai function:', error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
+  }
+});

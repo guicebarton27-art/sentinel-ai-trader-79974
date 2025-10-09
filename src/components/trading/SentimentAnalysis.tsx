@@ -21,7 +21,7 @@ export const SentimentAnalysis = () => {
   const fetchSentiment = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('fetch-sentiment', {
+      const { data, error } = await supabase.functions.invoke('analyze-sentiment-ai', {
         body: { symbol: 'BTC/USD' }
       });
 
@@ -77,7 +77,7 @@ export const SentimentAnalysis = () => {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
             <MessageCircle className="h-5 w-5 text-success" />
-            Market Sentiment
+            AI Market Sentiment
           </CardTitle>
           <div className="flex items-center gap-2">
             <Badge variant={aggregatedScore > 0 ? "default" : "secondary"} className="bg-success/20 text-success border-success/30">

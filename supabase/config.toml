@@ -8,3 +8,15 @@ verify_jwt = false
 
 [functions.run-backtest]
 verify_jwt = false
+
+[functions.predict-price]
+verify_jwt = false
+
+[functions.analyze-sentiment-ai]
+verify_jwt = false
+
+[functions.detect-arbitrage]
+verify_jwt = false
+
+[functions.fetch-sentiment]
+verify_jwt = false
