@@ -299,11 +299,26 @@ serve(async (req) => {
       .order('timestamp', { ascending: true });
 
     if (fetchError) throw fetchError;
+    
     if (!candles || candles.length === 0) {
-      throw new Error('No historical data available for the specified period');
+      // Try to get available date range to help user
+      const { data: availableData } = await supabase
+        .from('historical_candles')
+        .select('timestamp')
+        .eq('symbol', symbol)
+        .eq('interval', interval)
+        .order('timestamp', { ascending: true })
+        .limit(1);
+        
+      if (availableData && availableData.length > 0) {
+        const oldestDate = new Date(availableData[0].timestamp * 1000).toISOString().split('T')[0];
+        throw new Error(`No data found for ${startTimestamp} to ${endTimestamp}. Available data starts from ${oldestDate}. Try fetching historical data first.`);
+      }
+      
+      throw new Error('No historical data available. Please fetch data first using the "Fetch Data" button.');
     }
 
-    console.log(`Loaded ${candles.length} candles`);
+    console.log(`Loaded ${candles.length} candles for backtest from ${new Date(candles[0].timestamp * 1000).toISOString()} to ${new Date(candles[candles.length - 1].timestamp * 1000).toISOString()}`);
 
     // Run backtest
     const { trades, equityCurve, finalCapital } = runBacktest(

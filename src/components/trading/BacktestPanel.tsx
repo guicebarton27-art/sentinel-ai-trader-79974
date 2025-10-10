@@ -14,12 +14,23 @@ export const BacktestPanel = () => {
   const [loading, setLoading] = useState(false);
   const [fetchingData, setFetchingData] = useState(false);
   
+  // Set default dates - start date 30 days ago, end date today
+  const getDefaultDates = () => {
+    const today = new Date();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    
+    return {
+      startDate: thirtyDaysAgo.toISOString().split('T')[0],
+      endDate: today.toISOString().split('T')[0],
+    };
+  };
+
   const [config, setConfig] = useState({
     name: 'Momentum Strategy Test',
     symbol: 'BTC/USD',
     interval: '1h',
-    startDate: '2024-01-01',
-    endDate: '2024-12-31',
+    ...getDefaultDates(),
     initialCapital: 100000,
     trendWeight: 0.35,
     meanRevWeight: 0.35,
@@ -67,10 +78,33 @@ export const BacktestPanel = () => {
   };
 
   const handleRunBacktest = async () => {
+    // Validate dates
+    const startDate = new Date(config.startDate);
+    const endDate = new Date(config.endDate);
+    const today = new Date();
+    
+    if (endDate > today) {
+      toast({
+        title: 'Invalid date range',
+        description: 'End date cannot be in the future',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    if (startDate >= endDate) {
+      toast({
+        title: 'Invalid date range',
+        description: 'Start date must be before end date',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
-      const startTimestamp = Math.floor(new Date(config.startDate).getTime() / 1000);
-      const endTimestamp = Math.floor(new Date(config.endDate).getTime() / 1000);
+      const startTimestamp = Math.floor(startDate.getTime() / 1000);
+      const endTimestamp = Math.floor(endDate.getTime() / 1000);
 
       toast({
         title: 'Running backtest',
@@ -173,14 +207,16 @@ export const BacktestPanel = () => {
               <Input
                 type="date"
                 value={config.startDate}
+                max={new Date().toISOString().split('T')[0]}
                 onChange={(e) => setConfig({ ...config, startDate: e.target.value })}
               />
             </div>
             <div>
-              <Label>End Date</Label>
+              <Label>End Date (max: today)</Label>
               <Input
                 type="date"
                 value={config.endDate}
+                max={new Date().toISOString().split('T')[0]}
                 onChange={(e) => setConfig({ ...config, endDate: e.target.value })}
               />
             </div>
