@@ -104,7 +104,14 @@ export const StrategyRecommendation = () => {
                 </div>
               </div>
               <div className="flex items-end justify-end">
-                <Button size="sm" variant="outline" className="h-7 text-xs border-alpha/30 hover:bg-alpha/10">
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="h-7 text-xs border-alpha/30 hover:bg-alpha/10"
+                  onClick={() => {
+                    console.log('Deploying strategy:', rec.name);
+                  }}
+                >
                   Deploy
                 </Button>
               </div>

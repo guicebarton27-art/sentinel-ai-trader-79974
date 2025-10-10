@@ -148,7 +148,14 @@ export const TradingDashboard = () => {
             <Switch checked={minimalMode} onCheckedChange={setMinimalMode} />
           </div>
           
-          <Button variant="outline" size="sm">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              const tabsList = document.querySelector('[value="settings"]');
+              if (tabsList instanceof HTMLElement) tabsList.click();
+            }}
+          >
             <Settings className="h-4 w-4" />
           </Button>
         </div>
@@ -167,8 +174,6 @@ export const TradingDashboard = () => {
       {/* Expandable Panels - Hidden in Minimal Mode */}
       {!minimalMode && (
         <div className="space-y-4">
-          <CompactExecutionPanel metrics={executionMetrics} />
-          <CollapsibleRiskPanel metrics={riskMetrics} />
           <CompactStrategyPanel strategies={strategies} />
         </div>
       )}

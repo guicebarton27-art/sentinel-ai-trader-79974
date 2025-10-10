@@ -230,7 +230,13 @@ export const BotControls = ({ botStatus, onStatusChange }: BotControlsProps) => 
             </div>
           </div>
 
-          <Button variant="outline" className="w-full">
+          <Button 
+            variant="outline" 
+            className="w-full"
+            onClick={() => {
+              console.log('Opening advanced settings');
+            }}
+          >
             <Settings className="h-4 w-4 mr-2" />
             Advanced Settings
           </Button>
