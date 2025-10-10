@@ -32,7 +32,14 @@ serve(async (req) => {
     const sources = ["Twitter", "Reddit", "News"];
     const sentiments: SentimentData[] = [];
 
-    for (const source of sources) {
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i];
+      
+      // Add delay between API calls (except for the first one)
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+      }
+      
       const prompt = `Analyze current market sentiment for ${symbol} from ${source} sources. Consider recent trends, community discussions, and news.
 
 Provide your analysis in the following format:
@@ -43,59 +50,69 @@ Provide your analysis in the following format:
 
 Be realistic about current crypto market conditions.`;
 
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: "You are a market sentiment analyst expert at gauging social media and news sentiment for cryptocurrency markets." },
-            { role: "user", content: prompt }
-          ],
-        }),
-      });
+      try {
+        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: "You are a market sentiment analyst expert at gauging social media and news sentiment for cryptocurrency markets." },
+              { role: "user", content: prompt }
+            ],
+          }),
+        });
 
-      if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error("Rate limits exceeded, please try again later.");
+        if (!response.ok) {
+          if (response.status === 429) {
+            console.error(`Rate limit hit for ${source}, skipping...`);
+            continue; // Skip this source instead of throwing
+          }
+          if (response.status === 402) {
+            throw new Error("Payment required, please add funds to your Lovable AI workspace.");
+          }
+          const errorText = await response.text();
+          console.error("AI gateway error:", response.status, errorText);
+          continue; // Skip on other errors
         }
-        if (response.status === 402) {
-          throw new Error("Payment required, please add funds to your Lovable AI workspace.");
-        }
-        const errorText = await response.text();
-        console.error("AI gateway error:", response.status, errorText);
-        throw new Error("AI gateway error");
+
+        const aiResponse = await response.json();
+        const analysis = aiResponse.choices[0].message.content;
+        
+        console.log(`AI sentiment analysis for ${source}:`, analysis);
+
+        // Parse the AI response
+        const scoreMatch = analysis.match(/sentiment score[:\s]+(-?0?\.\d+|-?1\.0)/i);
+        const trendMatch = analysis.match(/trend[:\s]+(bullish|bearish|neutral)/i);
+        const volumeMatch = analysis.match(/volume[:\s]+(low|medium|high)/i);
+
+        const score = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
+        const trend = trendMatch ? trendMatch[1].toLowerCase() as "bullish" | "bearish" | "neutral" : "neutral";
+        const volumeLevel = volumeMatch ? volumeMatch[1].toLowerCase() : "medium";
+        
+        // Convert volume level to number
+        const volumeMap = { low: 500, medium: 1000, high: 2000 };
+        const volume = volumeMap[volumeLevel as keyof typeof volumeMap] + Math.floor(Math.random() * 500);
+
+        sentiments.push({
+          source,
+          score,
+          volume,
+          trend,
+          timestamp: Date.now() - (i * 300000), // Stagger timestamps
+          reasoning: analysis
+        });
+      } catch (apiError: any) {
+        console.error(`Error fetching sentiment for ${source}:`, apiError);
+        // Continue with next source
       }
-
-      const aiResponse = await response.json();
-      const analysis = aiResponse.choices[0].message.content;
-      
-      console.log(`AI sentiment analysis for ${source}:`, analysis);
-
-      // Parse the AI response
-      const scoreMatch = analysis.match(/sentiment score[:\s]+(-?0?\.\d+|-?1\.0)/i);
-      const trendMatch = analysis.match(/trend[:\s]+(bullish|bearish|neutral)/i);
-      const volumeMatch = analysis.match(/volume[:\s]+(low|medium|high)/i);
-
-      const score = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
-      const trend = trendMatch ? trendMatch[1].toLowerCase() as "bullish" | "bearish" | "neutral" : "neutral";
-      const volumeLevel = volumeMatch ? volumeMatch[1].toLowerCase() : "medium";
-      
-      // Convert volume level to number
-      const volumeMap = { low: 500, medium: 1000, high: 2000 };
-      const volume = volumeMap[volumeLevel as keyof typeof volumeMap] + Math.floor(Math.random() * 500);
-
-      sentiments.push({
-        source,
-        score,
-        volume,
-        trend,
-        timestamp: Date.now() - (sources.indexOf(source) * 300000), // Stagger timestamps
-        reasoning: analysis
-      });
+    }
+    
+    if (sentiments.length === 0) {
+      throw new Error("Rate limits exceeded. Please wait a few minutes before trying again.");
     }
 
     // Calculate aggregated sentiment

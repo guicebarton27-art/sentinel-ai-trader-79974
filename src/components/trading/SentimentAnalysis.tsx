@@ -42,9 +42,13 @@ export const SentimentAnalysis = () => {
   };
 
   useEffect(() => {
-    fetchSentiment();
-    const interval = setInterval(fetchSentiment, 300000); // Refresh every 5 minutes
-    return () => clearInterval(interval);
+    // Delay initial fetch to stagger with price predictions
+    const timer = setTimeout(fetchSentiment, 2000);
+    const interval = setInterval(fetchSentiment, 600000); // Refresh every 10 minutes to reduce API calls
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
 
   const getSentimentIcon = (trend: string) => {

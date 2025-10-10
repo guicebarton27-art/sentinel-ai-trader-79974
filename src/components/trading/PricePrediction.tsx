@@ -48,7 +48,7 @@ export const PricePrediction = () => {
 
   useEffect(() => {
     fetchPredictions();
-    const interval = setInterval(fetchPredictions, 300000); // Update every 5 minutes
+    const interval = setInterval(fetchPredictions, 600000); // Update every 10 minutes to reduce API calls
     return () => clearInterval(interval);
   }, []);
 

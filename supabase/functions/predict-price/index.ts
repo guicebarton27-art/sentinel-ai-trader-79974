@@ -85,10 +85,17 @@ serve(async (req) => {
 
     console.log('Market data calculated:', marketData);
 
-    // Call Lovable AI for predictions
+    // Call Lovable AI for predictions with delay between calls to avoid rate limiting
     const predictions = [];
     
-    for (const timeframe of timeframes) {
+    for (let i = 0; i < timeframes.length; i++) {
+      const timeframe = timeframes[i];
+      
+      // Add delay between API calls (except for the first one)
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+      }
+      
       const prompt = `You are a cryptocurrency price prediction expert. Analyze the following market data for ${symbol} and provide a price prediction for the next ${timeframe}.
 
 Current Price: $${currentPrice}
@@ -113,58 +120,68 @@ Be realistic and consider:
 - If volume is increasing with price, trend confirmation
 - Recent momentum and price action`;
 
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: "You are an expert cryptocurrency analyst providing realistic price predictions based on technical analysis." },
-            { role: "user", content: prompt }
-          ],
-        }),
-      });
+      try {
+        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: "You are an expert cryptocurrency analyst providing realistic price predictions based on technical analysis." },
+              { role: "user", content: prompt }
+            ],
+          }),
+        });
 
-      if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error("Rate limits exceeded, please try again later.");
+        if (!response.ok) {
+          if (response.status === 429) {
+            console.error(`Rate limit hit for ${timeframe}, skipping...`);
+            continue; // Skip this timeframe instead of throwing
+          }
+          if (response.status === 402) {
+            throw new Error("Payment required, please add funds to your Lovable AI workspace.");
+          }
+          const errorText = await response.text();
+          console.error("AI gateway error:", response.status, errorText);
+          continue; // Skip on other errors
         }
-        if (response.status === 402) {
-          throw new Error("Payment required, please add funds to your Lovable AI workspace.");
-        }
-        const errorText = await response.text();
-        console.error("AI gateway error:", response.status, errorText);
-        throw new Error("AI gateway error");
+
+        const aiResponse = await response.json();
+        const analysis = aiResponse.choices[0].message.content;
+        
+        console.log(`AI analysis for ${timeframe}:`, analysis);
+
+        // Parse the AI response
+        const priceMatch = analysis.match(/predicted price[:\s]+\$?([\d,]+\.?\d*)/i);
+        const confidenceMatch = analysis.match(/confidence[:\s]+(0?\.\d+|1\.0)/i);
+        const directionMatch = analysis.match(/direction[:\s]+(up|down)/i);
+        const changeMatch = analysis.match(/change[:\s]+(-?\d+\.?\d*)%?/i);
+
+        const predictedPrice = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : currentPrice;
+        const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.7;
+        const direction = directionMatch ? directionMatch[1].toLowerCase() : (predictedPrice > currentPrice ? 'up' : 'down');
+        const change = changeMatch ? parseFloat(changeMatch[1]) : ((predictedPrice - currentPrice) / currentPrice) * 100;
+
+        predictions.push({
+          timeframe,
+          currentPrice,
+          predictedPrice,
+          confidence,
+          direction,
+          change,
+          reasoning: analysis
+        });
+      } catch (apiError: any) {
+        console.error(`Error fetching prediction for ${timeframe}:`, apiError);
+        // Continue with next timeframe
       }
-
-      const aiResponse = await response.json();
-      const analysis = aiResponse.choices[0].message.content;
-      
-      console.log(`AI analysis for ${timeframe}:`, analysis);
-
-      // Parse the AI response
-      const priceMatch = analysis.match(/predicted price[:\s]+\$?([\d,]+\.?\d*)/i);
-      const confidenceMatch = analysis.match(/confidence[:\s]+(0?\.\d+|1\.0)/i);
-      const directionMatch = analysis.match(/direction[:\s]+(up|down)/i);
-      const changeMatch = analysis.match(/change[:\s]+(-?\d+\.?\d*)%?/i);
-
-      const predictedPrice = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : currentPrice;
-      const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.7;
-      const direction = directionMatch ? directionMatch[1].toLowerCase() : (predictedPrice > currentPrice ? 'up' : 'down');
-      const change = changeMatch ? parseFloat(changeMatch[1]) : ((predictedPrice - currentPrice) / currentPrice) * 100;
-
-      predictions.push({
-        timeframe,
-        currentPrice,
-        predictedPrice,
-        confidence,
-        direction,
-        change,
-        reasoning: analysis
-      });
+    }
+    
+    if (predictions.length === 0) {
+      throw new Error("Rate limits exceeded. Please wait a few minutes before trying again.");
     }
 
     return new Response(
