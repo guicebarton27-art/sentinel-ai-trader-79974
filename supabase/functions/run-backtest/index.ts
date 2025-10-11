@@ -251,17 +251,17 @@ function calculateMetrics(trades: Trade[], initialCapital: number, finalCapital:
   const sortinoRatio = downsideStdDev > 0 ? (avgReturn / downsideStdDev) * Math.sqrt(252) : 0;
 
   return {
-    totalReturn,
-    sharpeRatio,
-    sortinoRatio,
-    maxDrawdown,
-    winRate,
-    totalTrades: trades.length,
-    winningTrades: winningTrades.length,
-    losingTrades: losingTrades.length,
-    profitFactor,
-    avgWin,
-    avgLoss,
+    total_return: totalReturn,
+    sharpe_ratio: sharpeRatio,
+    sortino_ratio: sortinoRatio,
+    max_drawdown: maxDrawdown,
+    win_rate: winRate,
+    total_trades: trades.length,
+    winning_trades: winningTrades.length,
+    losing_trades: losingTrades.length,
+    profit_factor: profitFactor,
+    avg_win: avgWin,
+    avg_loss: avgLoss,
   };
 }
 
