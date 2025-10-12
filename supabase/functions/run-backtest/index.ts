@@ -250,6 +250,17 @@ function calculateMetrics(trades: Trade[], initialCapital: number, finalCapital:
     : 0;
   const sortinoRatio = downsideStdDev > 0 ? (avgReturn / downsideStdDev) * Math.sqrt(252) : 0;
 
+  // Calculate Calmar Ratio (annualized return / max drawdown)
+  const calmarRatio = maxDrawdown > 0 ? (totalReturn / maxDrawdown) : 0;
+  
+  // Calculate Omega Ratio (sum of gains / sum of losses)
+  const totalGains = winningTrades.reduce((sum, t) => sum + t.pnl, 0);
+  const totalLosses = Math.abs(losingTrades.reduce((sum, t) => sum + t.pnl, 0));
+  const omegaRatio = totalLosses > 0 ? totalGains / totalLosses : 0;
+  
+  // Calculate Expectancy (average win * win rate - average loss * loss rate)
+  const expectancy = (avgWin * winRate) - (Math.abs(avgLoss) * (1 - winRate));
+
   return {
     total_return: totalReturn,
     sharpe_ratio: sharpeRatio,
@@ -262,6 +273,9 @@ function calculateMetrics(trades: Trade[], initialCapital: number, finalCapital:
     profit_factor: profitFactor,
     avg_win: avgWin,
     avg_loss: avgLoss,
+    calmar_ratio: calmarRatio,
+    omega_ratio: omegaRatio,
+    expectancy: expectancy,
   };
 }
 
