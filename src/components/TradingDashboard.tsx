@@ -35,6 +35,10 @@ import { StrategyRecommendation } from './trading/StrategyRecommendation';
 import { ApiKeyManager } from './trading/ApiKeyManager';
 import { BacktestPanel } from './trading/BacktestPanel';
 import { BacktestResults } from './trading/BacktestResults';
+import { MLSentimentPanel } from './trading/MLSentimentPanel';
+import { MLPricePrediction } from './trading/MLPricePrediction';
+import { MLRiskEngine } from './trading/MLRiskEngine';
+import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { useTradingBot } from '@/hooks/useTradingBot';
 import { useToast } from '@/hooks/use-toast';
 
@@ -193,11 +197,15 @@ export const TradingDashboard = () => {
           <TabsContent value="dashboard" className="space-y-4">
             <PortfolioOverview data={portfolioData} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-              <PricePrediction />
-              <StrategyRecommendation />
+              <MLPricePrediction symbol="BTC/USD" />
+              <MLSentimentPanel />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-              <SentimentAnalysis />
+              <MLRiskEngine symbol="BTC/USD" />
+              <PortfolioOptimizer />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+              <StrategyRecommendation />
               <ArbitrageDetector />
             </div>
           </TabsContent>
