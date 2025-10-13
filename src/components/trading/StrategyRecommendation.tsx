@@ -1,131 +1,135 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, BarChart3, Activity, Sparkles, ArrowUpRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Lightbulb, TrendingUp, AlertTriangle, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
-interface StrategyRec {
-  name: string;
-  type: "momentum" | "mean-reversion" | "breakout";
-  confidence: number;
-  expectedReturn: number;
-  riskScore: number;
-  reason: string;
+interface StrategyRecommendationProps {
+  symbol: string;
 }
 
-export const StrategyRecommendation = () => {
-  const [recommendations] = useState<StrategyRec[]>([
-    {
-      name: "Momentum Alpha v2",
-      type: "momentum",
-      confidence: 0.87,
-      expectedReturn: 2.4,
-      riskScore: 65,
-      reason: "High volatility detected with strong directional bias"
-    },
-    {
-      name: "Volatility Breakout",
-      type: "breakout",
-      confidence: 0.72,
-      expectedReturn: 3.1,
-      riskScore: 78,
-      reason: "Consolidation pattern near resistance levels"
-    }
-  ]);
+export const StrategyRecommendation = ({ symbol }: StrategyRecommendationProps) => {
+  const [loading, setLoading] = useState(false);
+  const [recommendation, setRecommendation] = useState<any>(null);
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case "momentum": return "text-algo-primary";
-      case "breakout": return "text-alpha";
-      case "mean-reversion": return "text-sortino";
-      default: return "text-muted-foreground";
+  const getRecommendation = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('ml-strategy-recommendation', {
+        body: { symbol, account_balance: 10000, risk_tolerance: 'moderate' }
+      });
+
+      if (error) throw error;
+      setRecommendation(data);
+      toast.success('Strategy recommendation generated');
+    } catch (error: any) {
+      console.error('Strategy recommendation error:', error);
+      toast.error('Failed to generate recommendation');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case "momentum": return <TrendingUp className="h-4 w-4" />;
-      case "breakout": return <ArrowUpRight className="h-4 w-4" />;
-      case "mean-reversion": return <Activity className="h-4 w-4" />;
-      default: return <BarChart3 className="h-4 w-4" />;
+  const getActionIcon = (action: string) => {
+    switch (action) {
+      case 'buy': return <ArrowUpRight className="h-4 w-4" />;
+      case 'sell': return <ArrowDownRight className="h-4 w-4" />;
+      default: return <Minus className="h-4 w-4" />;
     }
   };
 
-  const getRiskColor = (score: number) => {
-    if (score >= 75) return "text-error";
-    if (score >= 50) return "text-warning";
-    return "text-success";
+  const getActionColor = (action: string) => {
+    switch (action) {
+      case 'buy': return 'text-green-500';
+      case 'sell': return 'text-red-500';
+      default: return 'text-gray-500';
+    }
   };
 
   return (
-    <Card className="bg-gradient-to-br from-card via-card to-alpha/5 border-alpha/20 shadow-performance">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-alpha" />
-            <CardTitle className="text-lg">AI Strategy Recommendations</CardTitle>
-          </div>
-          <Badge variant="outline" className="gap-1 border-alpha/30 text-alpha">
-            DQL Optimized
-          </Badge>
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Lightbulb className="h-5 w-5 text-primary" />
+          <h3 className="text-lg font-semibold">ML Strategy Recommendation</h3>
         </div>
-      </CardHeader>
+        <Button onClick={getRecommendation} disabled={loading} size="sm">
+          {loading ? 'Analyzing...' : 'Get Strategy'}
+        </Button>
+      </div>
 
-      <CardContent className="space-y-3">
-        {recommendations.map((rec, idx) => (
-          <div 
-            key={idx}
-            className="p-4 rounded-lg bg-gradient-to-br from-secondary/60 to-secondary/30 border border-border/50 hover:border-alpha/30 transition-all space-y-3"
-          >
-            <div className="flex items-start justify-between">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className={`${getTypeColor(rec.type)}`}>
-                    {getTypeIcon(rec.type)}
-                  </span>
-                  <h4 className="font-semibold">{rec.name}</h4>
-                </div>
-                <p className="text-sm text-muted-foreground">{rec.reason}</p>
-              </div>
-              <Badge variant="default" className="bg-alpha/20 text-alpha border-alpha/30">
-                {(rec.confidence * 100).toFixed(0)}%
+      {recommendation && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Primary Strategy</p>
+              <Badge variant="outline" className="mt-1">
+                {recommendation.primary_strategy}
               </Badge>
             </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Market Regime</p>
+              <Badge variant="outline" className="mt-1">
+                {recommendation.market_regime}
+              </Badge>
+            </div>
+          </div>
 
-            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-border/30">
+          <div className="bg-accent/50 p-4 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className={`font-semibold uppercase ${getActionColor(recommendation.action)}`}>
+                  {recommendation.action}
+                </span>
+                {getActionIcon(recommendation.action)}
+              </div>
+              <Badge variant={recommendation.confidence > 0.7 ? 'default' : 'secondary'}>
+                {(recommendation.confidence * 100).toFixed(0)}% Confidence
+              </Badge>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-sm">
               <div>
-                <div className="text-xs text-muted-foreground">Expected Return</div>
-                <div className="text-sm font-bold text-success">+{rec.expectedReturn}%</div>
+                <p className="text-muted-foreground">Entry</p>
+                <p className="font-semibold">${recommendation.entry_price?.toFixed(2)}</p>
               </div>
               <div>
-                <div className="text-xs text-muted-foreground">Risk Score</div>
-                <div className={`text-sm font-bold ${getRiskColor(rec.riskScore)}`}>
-                  {rec.riskScore}/100
-                </div>
+                <p className="text-muted-foreground">Stop Loss</p>
+                <p className="font-semibold text-red-500">${recommendation.stop_loss?.toFixed(2)}</p>
               </div>
-              <div className="flex items-end justify-end">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  className="h-7 text-xs border-alpha/30 hover:bg-alpha/10"
-                  onClick={() => {
-                    console.log('Deploying strategy:', rec.name);
-                  }}
-                >
-                  Deploy
-                </Button>
+              <div>
+                <p className="text-muted-foreground">Size</p>
+                <p className="font-semibold">{recommendation.position_size?.toFixed(1)}%</p>
               </div>
             </div>
           </div>
-        ))}
 
-        <div className="mt-4 pt-3 border-t border-border/50 text-xs text-muted-foreground">
-          <div className="flex items-center justify-between">
-            <span>Trained on 10,000+ market conditions</span>
-            <span>Sharpe Ratio: 1.85</span>
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="h-4 w-4 text-green-500" />
+              <p className="text-sm font-semibold">Key Signals</p>
+            </div>
+            <p className="text-sm text-muted-foreground whitespace-pre-line">
+              {recommendation.key_signals}
+            </p>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+              <p className="text-sm font-semibold">Risk Factors</p>
+            </div>
+            <p className="text-sm text-muted-foreground whitespace-pre-line">
+              {recommendation.risk_factors}
+            </p>
+          </div>
+
+          <div className="text-xs text-muted-foreground">
+            <p>Time Horizon: {recommendation.time_horizon} | R/R: {recommendation.risk_reward_ratio}:1</p>
           </div>
         </div>
-      </CardContent>
+      )}
     </Card>
   );
 };

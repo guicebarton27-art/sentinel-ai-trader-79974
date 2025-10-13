@@ -205,7 +205,7 @@ export const TradingDashboard = () => {
               <PortfolioOptimizer />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-              <StrategyRecommendation />
+              <StrategyRecommendation symbol="BTC/USD" />
               <ArbitrageDetector />
             </div>
           </TabsContent>
@@ -231,7 +231,7 @@ export const TradingDashboard = () => {
 
           <TabsContent value="execution" className="space-y-4">
             <div className="space-y-4">
-              <ExecutionRouter />
+              <ExecutionRouter symbol="BTC/USD" />
               <CompactExecutionPanel metrics={executionMetrics} />
             </div>
           </TabsContent>
