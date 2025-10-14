@@ -1,1 +1,40 @@
 project_id = "swpjpzsnqpamdchdlkpf"
+
+[functions.bot-engine]
+verify_jwt = true
+
+[functions.ml-price-prediction]
+verify_jwt = false
+
+[functions.ml-sentiment-analysis]
+verify_jwt = false
+
+[functions.ml-strategy-recommendation]
+verify_jwt = false
+
+[functions.ml-execution-router]
+verify_jwt = false
+
+[functions.ml-risk-engine]
+verify_jwt = false
+
+[functions.portfolio-optimizer]
+verify_jwt = false
+
+[functions.predict-price]
+verify_jwt = false
+
+[functions.detect-arbitrage]
+verify_jwt = false
+
+[functions.run-backtest]
+verify_jwt = false
+
+[functions.fetch-historical-data]
+verify_jwt = false
+
+[functions.fetch-sentiment]
+verify_jwt = false
+
+[functions.analyze-sentiment-ai]
+verify_jwt = false

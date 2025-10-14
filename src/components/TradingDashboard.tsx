@@ -39,6 +39,7 @@ import { MLSentimentPanel } from './trading/MLSentimentPanel';
 import { MLPricePrediction } from './trading/MLPricePrediction';
 import { MLRiskEngine } from './trading/MLRiskEngine';
 import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
+import { UserProfile } from './trading/UserProfile';
 import { useTradingBot } from '@/hooks/useTradingBot';
 import { useToast } from '@/hooks/use-toast';
 
@@ -162,6 +163,8 @@ export const TradingDashboard = () => {
           >
             <Settings className="h-4 w-4" />
           </Button>
+
+          <UserProfile />
         </div>
       </div>
 

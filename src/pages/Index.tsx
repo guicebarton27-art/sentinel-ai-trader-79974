@@ -1,7 +1,12 @@
 import { TradingDashboard } from '@/components/TradingDashboard';
+import { AuthGuard } from '@/components/auth/AuthGuard';
 
 const Index = () => {
-  return <TradingDashboard />;
+  return (
+    <AuthGuard>
+      <TradingDashboard />
+    </AuthGuard>
+  );
 };
 
 export default Index;
