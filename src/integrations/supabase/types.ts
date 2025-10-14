@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_keys: {
+        Row: {
+          created_at: string
+          encrypted_key: string
+          encrypted_secret: string
+          exchange: string
+          id: string
+          is_active: boolean | null
+          key_name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          encrypted_key: string
+          encrypted_secret: string
+          exchange: string
+          id?: string
+          is_active?: boolean | null
+          key_name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          encrypted_key?: string
+          encrypted_secret?: string
+          exchange?: string
+          id?: string
+          is_active?: boolean | null
+          key_name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       backtest_equity_curve: {
         Row: {
           backtest_run_id: string
@@ -320,6 +356,33 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       rl_agent_state: {
         Row: {
           action_taken: Json | null
@@ -404,15 +467,87 @@ export type Database = {
         }
         Relationships: []
       }
+      trading_sessions: {
+        Row: {
+          created_at: string
+          ended_at: string | null
+          id: string
+          mode: string
+          nav: number | null
+          pnl: number | null
+          pnl_percentage: number | null
+          started_at: string | null
+          starting_nav: number | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          mode?: string
+          nav?: number | null
+          pnl?: number | null
+          pnl_percentage?: number | null
+          started_at?: string | null
+          starting_nav?: number | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          mode?: string
+          nav?: number | null
+          pnl?: number | null
+          pnl_percentage?: number | null
+          started_at?: string | null
+          starting_nav?: number | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "trader" | "viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -539,6 +674,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "trader", "viewer"],
+    },
   },
 } as const
