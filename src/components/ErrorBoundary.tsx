@@ -1,50 +1,49 @@
-import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
+interface Props {
+  children: ReactNode;
 }
 
-interface ErrorBoundaryState {
+interface State {
   hasError: boolean;
   error?: Error;
 }
 
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
+export class ErrorBoundary extends Component<Props, State> {
+  public state: State = {
+    hasError: false
+  };
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Error caught by boundary:', error, errorInfo);
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Uncaught error:', error, errorInfo);
   }
 
-  render() {
+  public render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background p-4">
-          <Card className="max-w-md w-full">
+          <Card className="w-full max-w-md">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-destructive">
-                <AlertTriangle className="h-5 w-5" />
-                Something went wrong
-              </CardTitle>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-6 w-6 text-destructive" />
+                <CardTitle>Something went wrong</CardTitle>
+              </div>
+              <CardDescription>
+                An unexpected error occurred. Please try refreshing the page.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                An unexpected error occurred. Please try refreshing the page.
-              </p>
               {this.state.error && (
-                <p className="text-xs text-muted-foreground bg-muted p-2 rounded">
+                <div className="bg-muted p-3 rounded text-sm font-mono overflow-auto max-h-32">
                   {this.state.error.message}
-                </p>
+                </div>
               )}
               <Button
                 onClick={() => window.location.reload()}

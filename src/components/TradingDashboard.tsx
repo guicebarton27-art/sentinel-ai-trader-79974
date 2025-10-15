@@ -42,11 +42,15 @@ import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { UserProfile } from './trading/UserProfile';
 import { useTradingBot } from '@/hooks/useTradingBot';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
+import { LogOut } from 'lucide-react';
 
 export const TradingDashboard = () => {
   const [minimalMode, setMinimalMode] = useState(false);
   const { telemetry, isConnected, controlBot } = useTradingBot();
   const { toast } = useToast();
+  const navigate = useNavigate();
   
   const botStatus = telemetry?.status || 'stopped';
 
@@ -132,6 +136,23 @@ export const TradingDashboard = () => {
     }
   };
 
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      navigate('/auth');
+      toast({
+        title: 'Signed out',
+        description: 'You have been signed out successfully',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to sign out',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background p-4 space-y-6">
       {/* Header */}
@@ -162,6 +183,16 @@ export const TradingDashboard = () => {
             }}
           >
             <Settings className="h-4 w-4" />
+          </Button>
+          
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleSignOut}
+            className="gap-2"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
           </Button>
 
           <UserProfile />

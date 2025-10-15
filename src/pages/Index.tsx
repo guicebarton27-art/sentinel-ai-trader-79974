@@ -1,11 +1,11 @@
 import { TradingDashboard } from '@/components/TradingDashboard';
-import { AuthGuard } from '@/components/auth/AuthGuard';
+import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
 const Index = () => {
   return (
-    <AuthGuard>
+    <ProtectedRoute>
       <TradingDashboard />
-    </AuthGuard>
+    </ProtectedRoute>
   );
 };
 
