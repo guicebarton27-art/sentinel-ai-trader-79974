@@ -6,16 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { 
   Activity, 
-  Bot, 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign, 
   Settings,
   Play,
   Pause,
-  BarChart3,
-  AlertTriangle,
-  Minimize2
+  Minimize2,
+  LogOut
 } from 'lucide-react';
 import { CriticalPanel } from './trading/CriticalPanel';
 import { CompactExecutionPanel } from './trading/CompactExecutionPanel';
@@ -28,9 +23,7 @@ import { TradingChart } from './trading/TradingChart';
 import { StrategyEngine } from './trading/StrategyEngine';
 import { RiskEngine } from './trading/RiskEngine';
 import { ExecutionRouter } from './trading/ExecutionRouter';
-import { SentimentAnalysis } from './trading/SentimentAnalysis';
 import { ArbitrageDetector } from './trading/ArbitrageDetector';
-import { PricePrediction } from './trading/PricePrediction';
 import { StrategyRecommendation } from './trading/StrategyRecommendation';
 import { ApiKeyManager } from './trading/ApiKeyManager';
 import { BacktestPanel } from './trading/BacktestPanel';
@@ -39,12 +32,10 @@ import { MLSentimentPanel } from './trading/MLSentimentPanel';
 import { MLPricePrediction } from './trading/MLPricePrediction';
 import { MLRiskEngine } from './trading/MLRiskEngine';
 import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
-import { UserProfile } from './trading/UserProfile';
 import { useTradingBot } from '@/hooks/useTradingBot';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
 
 export const TradingDashboard = () => {
   const [minimalMode, setMinimalMode] = useState(false);
@@ -194,8 +185,6 @@ export const TradingDashboard = () => {
             <LogOut className="h-4 w-4" />
             Sign Out
           </Button>
-
-          <UserProfile />
         </div>
       </div>
 
