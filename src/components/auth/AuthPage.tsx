@@ -65,11 +65,17 @@ export const AuthPage = () => {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm(true)) return;
+    console.log('Sign up attempt with email:', email);
+    
+    if (!validateForm(true)) {
+      console.log('Validation failed');
+      return;
+    }
     
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
+      console.log('Calling Supabase signUp...');
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -80,7 +86,10 @@ export const AuthPage = () => {
         }
       });
 
+      console.log('Sign up response:', { data, error });
+
       if (error) {
+        console.error('Sign up error:', error);
         if (error.message.includes('already registered')) {
           toast({
             title: 'Account exists',
@@ -88,15 +97,23 @@ export const AuthPage = () => {
             variant: 'destructive',
           });
         } else {
-          throw error;
+          toast({
+            title: 'Error',
+            description: error.message,
+            variant: 'destructive',
+          });
         }
       } else {
+        console.log('Sign up successful!');
         toast({
           title: 'Success!',
-          description: 'Account created successfully. You can now sign in.',
+          description: 'Account created successfully. You are now signed in!',
         });
+        // Auto-redirect after successful signup (auto-confirm is enabled)
+        setTimeout(() => navigate('/'), 500);
       }
     } catch (error: any) {
+      console.error('Caught error:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to create account',
@@ -109,29 +126,48 @@ export const AuthPage = () => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm(false)) return;
+    console.log('Sign in attempt with email:', email);
+    
+    if (!validateForm(false)) {
+      console.log('Validation failed');
+      return;
+    }
     
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      console.log('Calling Supabase signInWithPassword...');
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
+      console.log('Sign in response:', { data, error });
+
       if (error) {
+        console.error('Sign in error:', error);
         if (error.message.includes('Invalid login credentials')) {
           toast({
             title: 'Error',
-            description: 'Invalid email or password',
+            description: 'Invalid email or password. Please check your credentials or sign up first.',
             variant: 'destructive',
           });
         } else {
-          throw error;
+          toast({
+            title: 'Error',
+            description: error.message,
+            variant: 'destructive',
+          });
         }
       } else {
+        console.log('Sign in successful!');
+        toast({
+          title: 'Success!',
+          description: 'Signed in successfully',
+        });
         navigate('/');
       }
     } catch (error: any) {
+      console.error('Caught error:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to sign in',
