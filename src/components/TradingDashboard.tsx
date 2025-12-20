@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,8 +9,17 @@ import {
   Settings,
   Play,
   Pause,
+  Square,
   Minimize2,
-  LogOut
+  LogOut,
+  Zap,
+  Shield,
+  TrendingUp,
+  BarChart3,
+  Cpu,
+  Bot,
+  Wallet,
+  AlertOctagon
 } from 'lucide-react';
 import { CriticalPanel } from './trading/CriticalPanel';
 import { CompactExecutionPanel } from './trading/CompactExecutionPanel';
@@ -39,11 +48,17 @@ import { useNavigate } from 'react-router-dom';
 
 export const TradingDashboard = () => {
   const [minimalMode, setMinimalMode] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
   const { telemetry, isConnected, controlBot } = useTradingBot();
   const { toast } = useToast();
   const navigate = useNavigate();
   
   const botStatus = telemetry?.status || 'stopped';
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const portfolioData = {
     totalValue: telemetry?.nav || 1000000,
@@ -144,172 +159,285 @@ export const TradingDashboard = () => {
     }
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'running': return 'bg-success text-success-foreground';
+      case 'paused': return 'bg-warning text-warning-foreground';
+      default: return 'bg-muted text-muted-foreground';
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-background p-4 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">Sentinel AI Trader</h1>
-          <p className="text-muted-foreground">Kraken Exchange Integration</p>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <Badge variant={isConnected ? 'default' : 'destructive'} className="gap-1">
-            <Activity className="h-3 w-3" />
-            {isConnected ? 'Connected' : 'Disconnected'}
-          </Badge>
-          
-          <div className="flex items-center gap-2">
-            <Minimize2 className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Minimal Mode</span>
-            <Switch checked={minimalMode} onCheckedChange={setMinimalMode} />
-          </div>
-          
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => {
-              const tabsList = document.querySelector('[value="settings"]');
-              if (tabsList instanceof HTMLElement) tabsList.click();
-            }}
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleSignOut}
-            className="gap-2"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </Button>
-        </div>
+    <div className="min-h-screen bg-background">
+      {/* Animated Background */}
+      <div className="fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/5 rounded-full blur-3xl animate-pulse-slow" />
+        <div className="absolute top-1/2 -left-40 w-96 h-96 bg-accent/5 rounded-full blur-3xl animate-pulse-slow" style={{ animationDelay: '1s' }} />
+        <div className="absolute -bottom-40 right-1/3 w-72 h-72 bg-success/5 rounded-full blur-3xl animate-pulse-slow" style={{ animationDelay: '2s' }} />
       </div>
 
-      {/* Critical Panel - Always Visible */}
-      <CriticalPanel
-        portfolioPnl={portfolioData.pnl}
-        portfolioPnlPercentage={portfolioData.pnlPercentage}
-        totalPnlPercentage={portfolioData.totalPnlPercentage}
-        currentDrawdown={5.2}
-        riskScore="warning"
-        botStatus={botStatus}
-      />
+      {/* Header */}
+      <header className="sticky top-0 z-40 glass-panel border-b border-border/50">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-gradient-to-br from-primary to-accent">
+                  <Bot className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight gradient-text">Sentinel AI</h1>
+                  <p className="text-xs text-muted-foreground">Kraken Exchange</p>
+                </div>
+              </div>
+              
+              <div className="hidden md:flex items-center gap-2 ml-4 px-3 py-1.5 rounded-full bg-secondary/50 border border-border/50">
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success animate-pulse' : 'bg-destructive'}`} />
+                <span className="text-xs font-medium">{isConnected ? 'Live' : 'Offline'}</span>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-6">
+              {/* Live Clock */}
+              <div className="hidden lg:block text-right">
+                <div className="text-sm font-mono font-bold text-foreground">
+                  {currentTime.toLocaleTimeString()}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </div>
+              </div>
 
-      {/* Expandable Panels - Hidden in Minimal Mode */}
-      {!minimalMode && (
-        <div className="space-y-4">
-          <CompactStrategyPanel strategies={strategies} />
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30">
+                <Minimize2 className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground hidden sm:inline">Compact</span>
+                <Switch checked={minimalMode} onCheckedChange={setMinimalMode} className="scale-90" />
+              </div>
+              
+              <Button 
+                variant="ghost" 
+                size="icon"
+                className="rounded-xl"
+                onClick={() => {
+                  const tabsList = document.querySelector('[value="settings"]');
+                  if (tabsList instanceof HTMLElement) tabsList.click();
+                }}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSignOut}
+                className="gap-2 rounded-xl"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Sign Out</span>
+              </Button>
+            </div>
+          </div>
         </div>
-      )}
+      </header>
 
-      {/* Main Content Tabs - Streamlined Layout */}
-      <div className="pb-20"> {/* Add padding bottom for sticky footer */}
-        <Tabs defaultValue="dashboard" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-6">
-            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-            <TabsTrigger value="strategies">Strategies</TabsTrigger>
-            <TabsTrigger value="risk">Risk</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-            <TabsTrigger value="execution">Execution</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+      <main className="container mx-auto px-4 py-6 space-y-6 pb-28">
+        {/* Critical Panel */}
+        <CriticalPanel
+          portfolioPnl={portfolioData.pnl}
+          portfolioPnlPercentage={portfolioData.pnlPercentage}
+          totalPnlPercentage={portfolioData.totalPnlPercentage}
+          currentDrawdown={5.2}
+          riskScore="warning"
+          botStatus={botStatus}
+        />
+
+        {/* Quick Stats Row */}
+        {!minimalMode && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <Wallet className="h-4 w-4 text-primary" />
+                <Badge variant="outline" className="text-xs">NAV</Badge>
+              </div>
+              <div className="mt-2">
+                <div className="metric-value">${(portfolioData.totalValue / 1000).toFixed(1)}K</div>
+                <div className="metric-label">Portfolio Value</div>
+              </div>
+            </div>
+            
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <TrendingUp className="h-4 w-4 text-success" />
+                <Badge variant="outline" className={`text-xs ${portfolioData.pnl >= 0 ? 'text-success' : 'text-destructive'}`}>
+                  {portfolioData.pnl >= 0 ? '+' : ''}{portfolioData.pnlPercentage.toFixed(2)}%
+                </Badge>
+              </div>
+              <div className="mt-2">
+                <div className={`metric-value ${portfolioData.pnl >= 0 ? 'text-success' : 'text-destructive'}`}>
+                  ${Math.abs(portfolioData.pnl).toLocaleString()}
+                </div>
+                <div className="metric-label">Today's P&L</div>
+              </div>
+            </div>
+            
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <Cpu className="h-4 w-4 text-accent" />
+                <Badge className={getStatusColor(botStatus)} variant="outline">
+                  {botStatus}
+                </Badge>
+              </div>
+              <div className="mt-2">
+                <div className="metric-value">{executionMetrics.ordersToday}</div>
+                <div className="metric-label">Orders Today</div>
+              </div>
+            </div>
+            
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <Zap className="h-4 w-4 text-warning" />
+                <Badge variant="outline" className="text-xs">{executionMetrics.latency}ms</Badge>
+              </div>
+              <div className="mt-2">
+                <div className="metric-value">{executionMetrics.fillRate}%</div>
+                <div className="metric-label">Fill Rate</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Strategy Panel */}
+        {!minimalMode && (
+          <CompactStrategyPanel strategies={strategies} />
+        )}
+
+        {/* Main Content Tabs */}
+        <Tabs defaultValue="dashboard" className="space-y-6">
+          <TabsList className="glass-panel p-1 grid w-full grid-cols-6 h-auto">
+            <TabsTrigger value="dashboard" className="gap-2 py-2.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg">
+              <BarChart3 className="h-4 w-4" />
+              <span className="hidden sm:inline">Dashboard</span>
+            </TabsTrigger>
+            <TabsTrigger value="strategies" className="gap-2 py-2.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg">
+              <Cpu className="h-4 w-4" />
+              <span className="hidden sm:inline">Strategies</span>
+            </TabsTrigger>
+            <TabsTrigger value="risk" className="gap-2 py-2.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg">
+              <Shield className="h-4 w-4" />
+              <span className="hidden sm:inline">Risk</span>
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="gap-2 py-2.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg">
+              <TrendingUp className="h-4 w-4" />
+              <span className="hidden sm:inline">Analytics</span>
+            </TabsTrigger>
+            <TabsTrigger value="execution" className="gap-2 py-2.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg">
+              <Zap className="h-4 w-4" />
+              <span className="hidden sm:inline">Execution</span>
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="gap-2 py-2.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-lg">
+              <Settings className="h-4 w-4" />
+              <span className="hidden sm:inline">Settings</span>
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="dashboard" className="space-y-4">
+          <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-300">
             <PortfolioOverview data={portfolioData} />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <MLPricePrediction symbol="BTC/USD" />
               <MLSentimentPanel />
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <MLRiskEngine symbol="BTC/USD" />
               <PortfolioOptimizer />
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <StrategyRecommendation symbol="BTC/USD" />
               <ArbitrageDetector />
             </div>
           </TabsContent>
 
-          <TabsContent value="strategies" className="space-y-4">
+          <TabsContent value="strategies" className="space-y-6 animate-in fade-in-50 duration-300">
             <StrategyEngine />
           </TabsContent>
 
-          <TabsContent value="risk" className="space-y-4">
-            <div className="space-y-4">
-              <RiskEngine />
-              <CollapsibleRiskPanel metrics={riskMetrics} />
-            </div>
+          <TabsContent value="risk" className="space-y-6 animate-in fade-in-50 duration-300">
+            <RiskEngine />
+            <CollapsibleRiskPanel metrics={riskMetrics} />
           </TabsContent>
 
-          <TabsContent value="analytics" className="space-y-4">
-            <div className="space-y-4">
-              <BacktestResults />
-              <TradingChart />
-              <MarketData />
-            </div>
+          <TabsContent value="analytics" className="space-y-6 animate-in fade-in-50 duration-300">
+            <BacktestResults />
+            <TradingChart />
+            <MarketData />
           </TabsContent>
 
-          <TabsContent value="execution" className="space-y-4">
-            <div className="space-y-4">
-              <ExecutionRouter symbol="BTC/USD" />
-              <CompactExecutionPanel metrics={executionMetrics} />
-            </div>
+          <TabsContent value="execution" className="space-y-6 animate-in fade-in-50 duration-300">
+            <ExecutionRouter symbol="BTC/USD" />
+            <CompactExecutionPanel metrics={executionMetrics} />
           </TabsContent>
 
-          <TabsContent value="settings" className="space-y-4">
-            <div className="space-y-4">
-              <BacktestPanel />
-              <ApiKeyManager />
-              <BotControls 
-                botStatus={botStatus} 
-                onStatusChange={(status) => {
-                  if (status === 'running') handleBotControl('start', 'paper');
-                  else if (status === 'paused') handleBotControl('pause');
-                  else handleBotControl('stop');
-                }} 
-              />
-            </div>
+          <TabsContent value="settings" className="space-y-6 animate-in fade-in-50 duration-300">
+            <BacktestPanel />
+            <ApiKeyManager />
+            <BotControls 
+              botStatus={botStatus} 
+              onStatusChange={(status) => {
+                if (status === 'running') handleBotControl('start', 'paper');
+                else if (status === 'paused') handleBotControl('pause');
+                else handleBotControl('stop');
+              }} 
+            />
           </TabsContent>
         </Tabs>
-      </div>
+      </main>
 
       {/* Sticky Bot Controls Footer */}
-      <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t p-4 flex justify-center gap-4 z-50">
-        <Button 
-          onClick={() => handleBotControl('start', 'paper')} 
-          disabled={botStatus === 'running' || !isConnected}
-          className="bg-green-600 hover:bg-green-700"
-        >
-          <Play className="h-4 w-4 mr-2" />
-          Start Bot
-        </Button>
-        <Button 
-          onClick={() => handleBotControl('pause')} 
-          disabled={botStatus === 'paused' || !isConnected}
-          variant="outline"
-        >
-          <Pause className="h-4 w-4 mr-2" />
-          Pause Bot
-        </Button>
-        <Button 
-          onClick={() => handleBotControl('stop')} 
-          disabled={botStatus === 'stopped' || !isConnected}
-          variant="outline"
-        >
-          Stop Bot
-        </Button>
-        <Button 
-          onClick={() => handleBotControl('kill')}
-          disabled={!isConnected}
-          variant="destructive"
-          className="ml-4"
-        >
-          🛑 Kill Switch
-        </Button>
-      </div>
+      <footer className="fixed bottom-0 left-0 right-0 z-50">
+        <div className="glass-panel border-t border-border/50 px-4 py-3">
+          <div className="container mx-auto flex items-center justify-center gap-3">
+            <Button 
+              onClick={() => handleBotControl('start', 'paper')} 
+              disabled={botStatus === 'running' || !isConnected}
+              className="bg-success hover:bg-success/90 text-success-foreground gap-2 rounded-xl shadow-lg"
+            >
+              <Play className="h-4 w-4" />
+              <span className="hidden sm:inline">Start Bot</span>
+            </Button>
+            
+            <Button 
+              onClick={() => handleBotControl('pause')} 
+              disabled={botStatus === 'paused' || !isConnected}
+              variant="outline"
+              className="gap-2 rounded-xl"
+            >
+              <Pause className="h-4 w-4" />
+              <span className="hidden sm:inline">Pause</span>
+            </Button>
+            
+            <Button 
+              onClick={() => handleBotControl('stop')} 
+              disabled={botStatus === 'stopped' || !isConnected}
+              variant="outline"
+              className="gap-2 rounded-xl"
+            >
+              <Square className="h-4 w-4" />
+              <span className="hidden sm:inline">Stop</span>
+            </Button>
+            
+            <div className="w-px h-8 bg-border mx-2" />
+            
+            <Button 
+              onClick={() => handleBotControl('kill')}
+              disabled={!isConnected}
+              variant="destructive"
+              className="gap-2 rounded-xl shadow-lg"
+            >
+              <AlertOctagon className="h-4 w-4" />
+              <span className="hidden sm:inline">Kill Switch</span>
+            </Button>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };
