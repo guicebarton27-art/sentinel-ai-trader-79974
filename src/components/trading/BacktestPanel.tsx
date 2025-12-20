@@ -131,7 +131,21 @@ export const BacktestPanel = () => {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Check if error is about missing data
+        const errorMessage = error.message || JSON.stringify(error);
+        if (errorMessage.includes('No data found') || errorMessage.includes('fetch historical data')) {
+          toast({
+            title: 'Missing Historical Data',
+            description: 'Fetching data automatically... Please try again in a moment.',
+            variant: 'destructive',
+          });
+          // Auto-fetch data
+          await handleFetchHistoricalData();
+          return;
+        }
+        throw error;
+      }
 
       toast({
         title: 'Backtest complete!',
@@ -139,11 +153,22 @@ export const BacktestPanel = () => {
       });
     } catch (error: any) {
       console.error('Error running backtest:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to run backtest',
-        variant: 'destructive',
-      });
+      const errorMessage = error.message || JSON.stringify(error);
+      
+      // Check for missing data error
+      if (errorMessage.includes('No data found') || errorMessage.includes('fetch historical data')) {
+        toast({
+          title: 'Missing Historical Data',
+          description: 'Click "Fetch Data" first to download historical prices, then run backtest.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: errorMessage || 'Failed to run backtest',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setLoading(false);
     }

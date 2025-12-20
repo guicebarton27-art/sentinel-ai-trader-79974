@@ -102,38 +102,38 @@ export const PortfolioOptimizer = () => {
 
             <div className="space-y-2">
               <div className="font-semibold text-sm">Asset Allocation</div>
-              {portfolio.allocations?.map((asset: any, idx: number) => (
-                <div key={idx} className="p-3 rounded-lg border bg-card/30">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium">{asset.symbol}</span>
-                    <Badge variant="outline">{asset.weight.toFixed(1)}%</Badge>
+            {portfolio.allocations?.map((asset: any, idx: number) => (
+              <div key={idx} className="p-3 rounded-lg border bg-card/30">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium">{asset.symbol}</span>
+                  <Badge variant="outline">{(asset.weight ?? 0).toFixed(1)}%</Badge>
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Allocation:</span>
+                    <span className="font-medium">${(asset.allocation ?? 0).toFixed(2)}</span>
                   </div>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Allocation:</span>
-                      <span className="font-medium">${asset.allocation?.toFixed(2)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Expected Return:</span>
-                      <span className="font-medium text-success">
-                        {asset.expected_return?.toFixed(2)}%
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Volatility:</span>
-                      <span className="font-medium">
-                        {(asset.volatility * 100)?.toFixed(2)}%
-                      </span>
-                    </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Expected Return:</span>
+                    <span className="font-medium text-success">
+                      {(asset.expected_return ?? 0).toFixed(2)}%
+                    </span>
                   </div>
-                  <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all"
-                      style={{ width: `${asset.weight}%` }}
-                    />
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Volatility:</span>
+                    <span className="font-medium">
+                      {((asset.volatility ?? 0) * 100).toFixed(2)}%
+                    </span>
                   </div>
                 </div>
-              ))}
+                <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${asset.weight ?? 0}%` }}
+                  />
+                </div>
+              </div>
+            ))}
             </div>
 
             <div className="p-4 rounded-lg border bg-card/30">
