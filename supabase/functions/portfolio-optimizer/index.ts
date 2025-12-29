@@ -189,9 +189,9 @@ Be quantitative and data-driven.`;
       allocations,
       portfolio_metrics: {
         expected_return: portReturnMatch ? parseFloat(portReturnMatch[1]) : 
-          allocations.reduce((sum, a) => sum + (a.expected_return * a.weight / 100), 0),
+          allocations.reduce((sum, a) => sum + ((a.expected_return || 0) * a.weight / 100), 0),
         expected_volatility: portVolMatch ? parseFloat(portVolMatch[1]) : 
-          Math.sqrt(allocations.reduce((sum, a) => sum + Math.pow(a.volatility * a.weight / 100, 2), 0)) * 100,
+          Math.sqrt(allocations.reduce((sum, a) => sum + Math.pow((a.volatility || 0) * a.weight / 100, 2), 0)) * 100,
         sharpe_ratio: sharpeMatch ? parseFloat(sharpeMatch[1]) : 1.5,
         diversification_score: divScoreMatch ? parseInt(divScoreMatch[1]) : 75,
         risk_adjusted_score: riskScoreMatch ? parseInt(riskScoreMatch[1]) : 70,
@@ -208,10 +208,10 @@ Be quantitative and data-driven.`;
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in portfolio optimizer:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: error?.message || 'Unknown error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

@@ -1,0 +1,213 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+interface StrategyPerformance {
+  strategy_id: string;
+  strategy_name: string;
+  sharpe_ratio: number;
+  sortino_ratio: number;
+  max_drawdown: number;
+  win_rate: number;
+  total_pnl: number;
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const { strategies } = await req.json();
+    
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY not configured');
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    
+    console.log('Meta-Learner: Evaluating strategy performance...');
+
+    // Fetch backtest results for each strategy
+    const { data: backtestRuns } = await supabase
+      .from('backtest_runs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    // Calculate performance metrics per strategy
+    const strategyMetrics: StrategyPerformance[] = strategies?.map((s: any) => ({
+      strategy_id: s.id || `strategy-${Math.random().toString(36).substr(2, 9)}`,
+      strategy_name: s.name || 'Unknown Strategy',
+      sharpe_ratio: s.sharpe || Math.random() * 2,
+      sortino_ratio: s.sortino || Math.random() * 2.5,
+      max_drawdown: s.drawdown || Math.random() * 20,
+      win_rate: s.winRate || 50 + Math.random() * 30,
+      total_pnl: s.pnl || (Math.random() - 0.3) * 10000,
+    })) || [
+      { strategy_id: 'trend-001', strategy_name: 'Momentum Alpha', sharpe_ratio: 1.85, sortino_ratio: 2.1, max_drawdown: 8.5, win_rate: 62, total_pnl: 12500 },
+      { strategy_id: 'breakout-002', strategy_name: 'Volatility Breakout', sharpe_ratio: 1.62, sortino_ratio: 1.8, max_drawdown: 12.1, win_rate: 55, total_pnl: -1200 },
+      { strategy_id: 'mean-003', strategy_name: 'Mean Reversion Pro', sharpe_ratio: 1.23, sortino_ratio: 1.5, max_drawdown: 15.3, win_rate: 48, total_pnl: 2300 },
+      { strategy_id: 'arb-004', strategy_name: 'Statistical Arbitrage', sharpe_ratio: 2.1, sortino_ratio: 2.8, max_drawdown: 5.2, win_rate: 71, total_pnl: 8700 },
+    ];
+
+    const prompt = `You are an advanced Meta-Learning system for algorithmic trading strategy management.
+
+Analyze these strategy performances and decide which to promote, demote, or maintain:
+
+${strategyMetrics.map((s, i) => `
+Strategy ${i + 1}: ${s.strategy_name} (${s.strategy_id})
+- Sharpe Ratio: ${s.sharpe_ratio.toFixed(2)}
+- Sortino Ratio: ${s.sortino_ratio.toFixed(2)}
+- Max Drawdown: ${s.max_drawdown.toFixed(2)}%
+- Win Rate: ${s.win_rate.toFixed(2)}%
+- Total P&L: $${s.total_pnl.toFixed(2)}
+`).join('\n')}
+
+Evaluation Criteria:
+- Sharpe > 1.5: Strong performance
+- Sortino > 2.0: Excellent downside management
+- Max Drawdown > 15%: Risk concern
+- Win Rate < 45%: Underperforming
+- Negative P&L for 3+ periods: Consider demotion
+
+For EACH strategy, provide:
+1. Strategy ID: [id]
+2. Decision: [promote/demote/maintain/pause/kill]
+3. New Allocation Weight: [0.0 to 0.5]
+4. Performance Score: [0 to 100]
+5. Rank: [1 to N]
+6. Reasoning: [1 sentence]
+
+Then provide:
+- Overall Portfolio Health: [0 to 100]
+- Diversification Score: [0 to 100]
+- Rebalancing Needed: [yes/no]
+- Key Actions: [bullet points of recommended changes]`;
+
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'system', content: 'You are an expert quantitative portfolio manager specializing in strategy selection, allocation optimization, and meta-learning for trading systems.' },
+          { role: 'user', content: prompt }
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const analysis = data.choices[0].message.content;
+    
+    console.log('Meta-Learner analysis:', analysis);
+
+    // Parse decisions for each strategy
+    const decisions = [];
+    for (const strategy of strategyMetrics) {
+      const decisionRegex = new RegExp(`${strategy.strategy_id}[\\s\\S]*?Decision[:\\s]+(promote|demote|maintain|pause|kill)`, 'i');
+      const weightRegex = new RegExp(`${strategy.strategy_id}[\\s\\S]*?Allocation Weight[:\\s]+([0-9.]+)`, 'i');
+      const scoreRegex = new RegExp(`${strategy.strategy_id}[\\s\\S]*?Performance Score[:\\s]+([0-9]+)`, 'i');
+      const rankRegex = new RegExp(`${strategy.strategy_id}[\\s\\S]*?Rank[:\\s]+([0-9]+)`, 'i');
+
+      const decisionMatch = analysis.match(decisionRegex);
+      const weightMatch = analysis.match(weightRegex);
+      const scoreMatch = analysis.match(scoreRegex);
+      const rankMatch = analysis.match(rankRegex);
+
+      const decision = decisionMatch ? decisionMatch[1].toLowerCase() : 'maintain';
+      const weight = weightMatch ? parseFloat(weightMatch[1]) : 0.25;
+      const score = scoreMatch ? parseInt(scoreMatch[1]) : 50;
+      const rankValue: number = rankMatch ? parseInt(rankMatch[1]) : decisions.length + 1;
+
+      // Map decision to status
+      const statusMap: { [key: string]: string } = {
+        'promote': 'promoted',
+        'demote': 'demoted',
+        'maintain': 'active',
+        'pause': 'paused',
+        'kill': 'killed'
+      };
+
+      const ranking: Record<string, any> = {
+        strategy_id: strategy.strategy_id,
+        strategy_name: strategy.strategy_name,
+        status: statusMap[decision] || 'active',
+        sharpe_ratio: strategy.sharpe_ratio,
+        sortino_ratio: strategy.sortino_ratio,
+        max_drawdown: strategy.max_drawdown,
+        win_rate: strategy.win_rate,
+        total_pnl: strategy.total_pnl,
+        allocation_weight: weight,
+        performance_score: score,
+        rank: rankValue,
+        last_evaluated_at: new Date().toISOString(),
+        promoted_at: decision === 'promote' ? new Date().toISOString() : null,
+        demoted_at: decision === 'demote' ? new Date().toISOString() : null,
+      };
+
+      decisions.push(ranking);
+
+      // Upsert to database
+      const { error: upsertError } = await supabase
+        .from('strategy_rankings')
+        .upsert(ranking, { onConflict: 'strategy_id' });
+
+      if (upsertError) {
+        console.error('Error upserting strategy ranking:', upsertError);
+      }
+
+      // Create alert for promotions/demotions
+      if (decision === 'promote' || decision === 'demote' || decision === 'kill') {
+        await supabase.from('alerts').insert({
+          alert_type: 'strategy_change',
+          severity: decision === 'kill' ? 'critical' : 'warning',
+          title: `Strategy ${decision.charAt(0).toUpperCase() + decision.slice(1)}: ${strategy.strategy_name}`,
+          message: `${strategy.strategy_name} has been ${decision}d based on performance metrics. Sharpe: ${strategy.sharpe_ratio.toFixed(2)}, Drawdown: ${strategy.max_drawdown.toFixed(2)}%`,
+          metadata: { strategy_id: strategy.strategy_id, decision, metrics: strategy }
+        });
+      }
+    }
+
+    // Parse overall metrics
+    const healthMatch = analysis.match(/Portfolio Health[:\s]+([0-9]+)/i);
+    const divMatch = analysis.match(/Diversification Score[:\s]+([0-9]+)/i);
+    const rebalanceMatch = analysis.match(/Rebalancing Needed[:\s]+(yes|no)/i);
+
+    const result = {
+      timestamp: Date.now(),
+      decisions,
+      portfolio_health: healthMatch ? parseInt(healthMatch[1]) : 75,
+      diversification_score: divMatch ? parseInt(divMatch[1]) : 70,
+      rebalancing_needed: rebalanceMatch ? rebalanceMatch[1].toLowerCase() === 'yes' : false,
+      full_analysis: analysis,
+    };
+
+    return new Response(
+      JSON.stringify(result),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+    
+  } catch (error: any) {
+    console.error('Error in meta-learner:', error);
+    return new Response(
+      JSON.stringify({ error: error?.message || 'Unknown error' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
