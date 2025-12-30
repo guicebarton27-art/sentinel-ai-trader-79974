@@ -50,3 +50,6 @@ verify_jwt = true
 
 [functions.alert-system]
 verify_jwt = true
+
+[functions.ai-strategy-engine]
+verify_jwt = true
