@@ -41,6 +41,7 @@ import { MLSentimentPanel } from './trading/MLSentimentPanel';
 import { MLPricePrediction } from './trading/MLPricePrediction';
 import { MLRiskEngine } from './trading/MLRiskEngine';
 import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
+import { AutoMLAgent } from './trading/AutoMLAgent';
 import { useTradingBot } from '@/hooks/useTradingBot';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -357,6 +358,7 @@ export const TradingDashboard = () => {
           </TabsContent>
 
           <TabsContent value="strategies" className="space-y-6 animate-in fade-in-50 duration-300">
+            <AutoMLAgent />
             <StrategyEngine />
           </TabsContent>
 
