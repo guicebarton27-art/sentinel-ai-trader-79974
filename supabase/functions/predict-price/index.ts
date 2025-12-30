@@ -6,19 +6,52 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Authenticate user and check role
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw new Error('Missing authorization header');
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error('Invalid or expired token');
+  }
+
+  // Check user role - all roles can read predictions
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single();
+
+  return { user, role: roleData?.role || 'viewer' };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Authenticate user
+    const { user, role } = await authenticateUser(req);
+    console.log(`User ${user.id} (${role}) requesting price predictions`);
+
     const { symbol = "BTC/USD", timeframes = ["1H", "4H", "24H"] } = await req.json();
     
     console.log('Generating predictions for:', symbol, 'timeframes:', timeframes);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+      throw new Error("AI service not configured");
     }
 
     // Initialize Supabase client
@@ -142,7 +175,7 @@ Be realistic and consider:
             continue; // Skip this timeframe instead of throwing
           }
           if (response.status === 402) {
-            throw new Error("Payment required, please add funds to your Lovable AI workspace.");
+            throw new Error("AI service payment required");
           }
           const errorText = await response.text();
           console.error("AI gateway error:", response.status, errorText);
@@ -196,10 +229,15 @@ Be realistic and consider:
 
   } catch (error: any) {
     console.error('Error in predict-price function:', error);
+    
+    const isAuthError = error.message?.includes('authorization') || 
+                        error.message?.includes('token') || 
+                        error.message?.includes('permission');
+    
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: isAuthError ? error.message : 'Failed to generate predictions. Please try again.' }),
       { 
-        status: 500, 
+        status: isAuthError ? 401 : 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );

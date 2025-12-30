@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,12 +14,38 @@ interface SentimentData {
   timestamp: number;
 }
 
+// Authenticate user
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw new Error('Missing authorization header');
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error('Invalid or expired token');
+  }
+
+  return { user };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Authenticate user
+    const { user } = await authenticateUser(req);
+    console.log(`User ${user.id} fetching sentiment data`);
+
     const { symbol = "BTC/USD" } = await req.json();
     
     console.log('Fetching sentiment data for:', symbol);
@@ -62,10 +89,14 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('Error fetching sentiment data:', error);
+    
+    const isAuthError = error.message?.includes('authorization') || 
+                        error.message?.includes('token');
+    
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: isAuthError ? error.message : 'Failed to fetch sentiment data. Please try again.' }),
       { 
-        status: 500, 
+        status: isAuthError ? 401 : 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );
