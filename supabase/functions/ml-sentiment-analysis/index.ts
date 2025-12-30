@@ -6,12 +6,50 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Authenticate user and check role
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw new Error('Missing authorization header');
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error('Invalid or expired token');
+  }
+
+  // Check user role
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single();
+
+  const role = roleData?.role || 'viewer';
+  if (!['admin', 'trader'].includes(role)) {
+    throw new Error('Insufficient permissions. Trader or admin role required.');
+  }
+
+  return { user, role };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Authenticate user and verify role
+    const { user, role } = await authenticateUser(req);
+    console.log(`User ${user.id} (${role}) requesting ML sentiment analysis`);
+
     const { symbol = 'BTC/USD', sources = ['twitter', 'reddit', 'news'] } = await req.json();
     
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
@@ -19,7 +57,7 @@ serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
     if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+      throw new Error('AI service not configured');
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -150,9 +188,14 @@ Be realistic and data-driven in your assessment.`;
     
   } catch (error: any) {
     console.error('Error in ML sentiment analysis:', error);
+    
+    const isAuthError = error.message?.includes('authorization') || 
+                        error.message?.includes('token') || 
+                        error.message?.includes('permission');
+    
     return new Response(
-      JSON.stringify({ error: error?.message || 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: isAuthError ? error.message : 'Failed to analyze sentiment. Please try again.' }),
+      { status: isAuthError ? 401 : 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,19 +15,57 @@ interface SentimentData {
   reasoning?: string;
 }
 
+// Authenticate user and check role
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw new Error('Missing authorization header');
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error('Invalid or expired token');
+  }
+
+  // Check user role
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single();
+
+  const role = roleData?.role || 'viewer';
+  if (!['admin', 'trader'].includes(role)) {
+    throw new Error('Insufficient permissions. Trader or admin role required.');
+  }
+
+  return { user, role };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Authenticate user and verify role
+    const { user, role } = await authenticateUser(req);
+    console.log(`User ${user.id} (${role}) analyzing sentiment with AI`);
+
     const { symbol = "BTC/USD" } = await req.json();
     
     console.log('Analyzing sentiment for:', symbol);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+      throw new Error("AI service not configured");
     }
 
     const sources = ["Twitter", "Reddit", "News"];
@@ -72,7 +111,7 @@ Be realistic about current crypto market conditions.`;
             continue; // Skip this source instead of throwing
           }
           if (response.status === 402) {
-            throw new Error("Payment required, please add funds to your Lovable AI workspace.");
+            throw new Error("AI service payment required");
           }
           const errorText = await response.text();
           console.error("AI gateway error:", response.status, errorText);
@@ -131,10 +170,15 @@ Be realistic about current crypto market conditions.`;
 
   } catch (error: any) {
     console.error('Error in analyze-sentiment-ai function:', error);
+    
+    const isAuthError = error.message?.includes('authorization') || 
+                        error.message?.includes('token') || 
+                        error.message?.includes('permission');
+    
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: isAuthError ? error.message : 'Failed to analyze sentiment. Please try again.' }),
       { 
-        status: 500, 
+        status: isAuthError ? 401 : 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );

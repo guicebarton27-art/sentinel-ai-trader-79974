@@ -17,12 +17,50 @@ interface KrakenOHLC {
   7: number; // count
 }
 
+// Authenticate user and check role
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw new Error('Missing authorization header');
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error('Invalid or expired token');
+  }
+
+  // Check user role
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single();
+
+  const role = roleData?.role || 'viewer';
+  if (!['admin', 'trader'].includes(role)) {
+    throw new Error('Insufficient permissions. Trader or admin role required.');
+  }
+
+  return { user, role };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Authenticate user and verify role
+    const { user, role } = await authenticateUser(req);
+    console.log(`User ${user.id} (${role}) fetching historical data`);
+
     const { symbol, interval, since } = await req.json();
     
     console.log('Fetching historical data:', { symbol, interval, since });
@@ -51,20 +89,20 @@ serve(async (req) => {
     const data = await response.json();
 
     if (data.error && data.error.length > 0) {
-      throw new Error(`Kraken API error: ${data.error.join(', ')}`);
+      throw new Error(`External API error. Please try again.`);
     }
 
     // Extract OHLC data
     const pairKey = Object.keys(data.result).find(key => key !== 'last');
     if (!pairKey) {
-      throw new Error('No data returned from Kraken');
+      throw new Error('No data returned from market data provider');
     }
 
     const ohlcData: KrakenOHLC[] = data.result[pairKey];
     
     console.log(`Retrieved ${ohlcData.length} candles`);
 
-    // Initialize Supabase client
+    // Initialize Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -91,7 +129,7 @@ serve(async (req) => {
 
     if (insertError) {
       console.error('Insert error:', insertError);
-      throw insertError;
+      throw new Error('Failed to store historical data');
     }
 
     console.log(`Successfully stored ${candles.length} candles`);
@@ -107,10 +145,15 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('Error fetching historical data:', error);
+    
+    const isAuthError = error.message?.includes('authorization') || 
+                        error.message?.includes('token') || 
+                        error.message?.includes('permission');
+    
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: isAuthError ? error.message : 'Failed to fetch historical data. Please try again.' }),
       { 
-        status: 500, 
+        status: isAuthError ? 401 : 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );

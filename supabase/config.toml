@@ -4,37 +4,49 @@ project_id = "swpjpzsnqpamdchdlkpf"
 verify_jwt = true
 
 [functions.ml-price-prediction]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ml-sentiment-analysis]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ml-strategy-recommendation]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ml-execution-router]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ml-risk-engine]
-verify_jwt = false
+verify_jwt = true
 
 [functions.portfolio-optimizer]
-verify_jwt = false
+verify_jwt = true
 
 [functions.predict-price]
-verify_jwt = false
+verify_jwt = true
 
 [functions.detect-arbitrage]
-verify_jwt = false
+verify_jwt = true
 
 [functions.run-backtest]
-verify_jwt = false
+verify_jwt = true
 
 [functions.fetch-historical-data]
-verify_jwt = false
+verify_jwt = true
 
 [functions.fetch-sentiment]
-verify_jwt = false
+verify_jwt = true
 
 [functions.analyze-sentiment-ai]
-verify_jwt = false
+verify_jwt = true
+
+[functions.meta-learner]
+verify_jwt = true
+
+[functions.chaos-runner]
+verify_jwt = true
+
+[functions.trade-validator]
+verify_jwt = true
+
+[functions.alert-system]
+verify_jwt = true

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,12 +13,50 @@ interface ArbitrageOpportunity {
   timestamp: number;
 }
 
+// Authenticate user and check role
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw new Error('Missing authorization header');
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error('Invalid or expired token');
+  }
+
+  // Check user role
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single();
+
+  const role = roleData?.role || 'viewer';
+  if (!['admin', 'trader'].includes(role)) {
+    throw new Error('Insufficient permissions. Trader or admin role required.');
+  }
+
+  return { user, role };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Authenticate user and verify role
+    const { user, role } = await authenticateUser(req);
+    console.log(`User ${user.id} (${role}) detecting arbitrage opportunities`);
+
     console.log('Detecting arbitrage opportunities...');
 
     // Fetch ticker data from Kraken
@@ -26,7 +65,7 @@ serve(async (req) => {
     const data = await response.json();
 
     if (data.error && data.error.length > 0) {
-      throw new Error(`Kraken API error: ${data.error.join(', ')}`);
+      throw new Error('Failed to fetch market data');
     }
 
     const opportunities: ArbitrageOpportunity[] = [];
@@ -87,10 +126,15 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('Error detecting arbitrage:', error);
+    
+    const isAuthError = error.message?.includes('authorization') || 
+                        error.message?.includes('token') || 
+                        error.message?.includes('permission');
+    
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: isAuthError ? error.message : 'Failed to detect arbitrage opportunities. Please try again.' }),
       { 
-        status: 500, 
+        status: isAuthError ? 401 : 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );

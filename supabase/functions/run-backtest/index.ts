@@ -37,6 +37,40 @@ interface StrategyConfig {
   maxPositionSize: number;
 }
 
+// Authenticate user and check role
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw new Error('Missing authorization header');
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error('Invalid or expired token');
+  }
+
+  // Check user role - traders and admins can run backtests
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single();
+
+  const role = roleData?.role || 'viewer';
+  if (!['admin', 'trader'].includes(role)) {
+    throw new Error('Insufficient permissions. Trader or admin role required.');
+  }
+
+  return { user, role };
+}
+
 // Calculate technical indicators
 function calculateSMA(candles: Candle[], period: number): number[] {
   const sma: number[] = [];
@@ -285,6 +319,10 @@ serve(async (req) => {
   }
 
   try {
+    // Authenticate user and verify role
+    const { user, role } = await authenticateUser(req);
+    console.log(`User ${user.id} (${role}) running backtest`);
+
     const { 
       name,
       symbol, 
@@ -297,7 +335,7 @@ serve(async (req) => {
 
     console.log('Running backtest:', { name, symbol, interval, startTimestamp, endTimestamp });
 
-    // Initialize Supabase client
+    // Initialize Supabase client with service role for data access
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -326,13 +364,13 @@ serve(async (req) => {
         
       if (availableData && availableData.length > 0) {
         const oldestDate = new Date(availableData[0].timestamp * 1000).toISOString().split('T')[0];
-        throw new Error(`No data found for ${startTimestamp} to ${endTimestamp}. Available data starts from ${oldestDate}. Try fetching historical data first.`);
+        throw new Error(`No data found for selected date range. Available data starts from ${oldestDate}. Try fetching historical data first.`);
       }
       
-      throw new Error('No historical data available. Please fetch data first using the "Fetch Data" button.');
+      throw new Error('No historical data available. Please fetch data first.');
     }
 
-    console.log(`Loaded ${candles.length} candles for backtest from ${new Date(candles[0].timestamp * 1000).toISOString()} to ${new Date(candles[candles.length - 1].timestamp * 1000).toISOString()}`);
+    console.log(`Loaded ${candles.length} candles for backtest`);
 
     // Run backtest
     const { trades, equityCurve, finalCapital } = runBacktest(
@@ -406,10 +444,18 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('Error running backtest:', error);
+    
+    // Return user-friendly error messages
+    const isAuthError = error.message?.includes('authorization') || 
+                        error.message?.includes('token') || 
+                        error.message?.includes('permission');
+    
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        error: isAuthError ? error.message : 'Failed to run backtest. Please try again.' 
+      }),
       { 
-        status: 500, 
+        status: isAuthError ? 401 : 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );
