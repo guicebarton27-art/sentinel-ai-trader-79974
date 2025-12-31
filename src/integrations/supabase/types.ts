@@ -225,6 +225,51 @@ export type Database = {
           },
         ]
       }
+      deployed_strategies: {
+        Row: {
+          created_at: string
+          deployed_at: string
+          id: string
+          last_signal_at: string | null
+          name: string
+          performance_metrics: Json | null
+          status: string
+          strategy_config: Json
+          symbol: string
+          total_signals: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          deployed_at?: string
+          id?: string
+          last_signal_at?: string | null
+          name: string
+          performance_metrics?: Json | null
+          status?: string
+          strategy_config: Json
+          symbol: string
+          total_signals?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          deployed_at?: string
+          id?: string
+          last_signal_at?: string | null
+          name?: string
+          performance_metrics?: Json | null
+          status?: string
+          strategy_config?: Json
+          symbol?: string
+          total_signals?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       historical_candles: {
         Row: {
           close: number
