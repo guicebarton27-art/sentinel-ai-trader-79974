@@ -1,10 +1,40 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Input validation schemas
+const StrategyConfigSchema = z.object({
+  trendWeight: z.number().min(0).max(1),
+  meanRevWeight: z.number().min(0).max(1),
+  carryWeight: z.number().min(0).max(1),
+  signalThreshold: z.number().min(0).max(1),
+  stopLoss: z.number().min(0).max(1),
+  takeProfit: z.number().min(0).max(1),
+  maxPositionSize: z.number().min(0).max(1),
+});
+
+const BacktestSchema = z.object({
+  name: z.string().min(1, "Name is required").max(100, "Name too long"),
+  symbol: z.string()
+    .min(1)
+    .max(20)
+    .regex(/^[A-Z0-9]{2,10}\/[A-Z]{2,5}$|^[A-Z0-9]{4,12}$/, "Invalid symbol format"),
+  interval: z.enum(['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'], {
+    errorMap: () => ({ message: "Invalid interval" })
+  }),
+  startTimestamp: z.number().int().positive().max(Math.floor(Date.now() / 1000) + 86400),
+  endTimestamp: z.number().int().positive().max(Math.floor(Date.now() / 1000) + 86400),
+  initialCapital: z.number().positive().min(100, "Minimum capital is $100").max(1000000000, "Maximum capital is $1B"),
+  strategyConfig: StrategyConfigSchema,
+}).refine(data => data.endTimestamp > data.startTimestamp, {
+  message: "End timestamp must be after start timestamp",
+  path: ["endTimestamp"],
+});
 
 interface Candle {
   timestamp: number;
@@ -323,15 +353,20 @@ serve(async (req) => {
     const { user, role } = await authenticateUser(req);
     console.log(`User ${user.id} (${role}) running backtest`);
 
-    const { 
-      name,
-      symbol, 
-      interval, 
-      startTimestamp, 
-      endTimestamp, 
-      initialCapital,
-      strategyConfig 
-    } = await req.json();
+    // Parse and validate input
+    const rawInput = await req.json();
+    const parseResult = BacktestSchema.safeParse(rawInput);
+    
+    if (!parseResult.success) {
+      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      console.error('Validation error:', errorMessage);
+      return new Response(
+        JSON.stringify({ error: 'Invalid input', details: errorMessage }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { name, symbol, interval, startTimestamp, endTimestamp, initialCapital, strategyConfig } = parseResult.data;
 
     console.log('Running backtest:', { name, symbol, interval, startTimestamp, endTimestamp });
 

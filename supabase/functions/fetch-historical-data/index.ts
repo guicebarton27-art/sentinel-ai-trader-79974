@@ -1,10 +1,23 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Input validation schema
+const HistoricalDataSchema = z.object({
+  symbol: z.string()
+    .min(1, "Symbol is required")
+    .max(20, "Symbol too long")
+    .regex(/^[A-Z0-9]{2,10}\/[A-Z]{2,5}$|^[A-Z0-9]{4,12}$/, "Invalid symbol format (e.g., BTC/USD or BTCUSD)"),
+  interval: z.enum(['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'], {
+    errorMap: () => ({ message: "Invalid interval. Use: 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w" })
+  }),
+  since: z.number().int().positive().optional(),
+});
 
 interface KrakenOHLC {
   0: number; // timestamp
@@ -61,7 +74,20 @@ serve(async (req) => {
     const { user, role } = await authenticateUser(req);
     console.log(`User ${user.id} (${role}) fetching historical data`);
 
-    const { symbol, interval, since } = await req.json();
+    // Parse and validate input
+    const rawInput = await req.json();
+    const parseResult = HistoricalDataSchema.safeParse(rawInput);
+    
+    if (!parseResult.success) {
+      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      console.error('Validation error:', errorMessage);
+      return new Response(
+        JSON.stringify({ error: 'Invalid input', details: errorMessage }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { symbol, interval, since } = parseResult.data;
     
     console.log('Fetching historical data:', { symbol, interval, since });
 

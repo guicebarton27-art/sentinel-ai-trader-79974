@@ -1,10 +1,23 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Input validation schema
+const MLPredictionSchema = z.object({
+  symbol: z.string()
+    .min(1, "Symbol is required")
+    .max(20, "Symbol too long")
+    .regex(/^[A-Z0-9]{2,10}\/[A-Z]{2,5}$|^[A-Z0-9]{4,12}$/, "Invalid symbol format")
+    .default('BTC/USD'),
+  horizons: z.array(
+    z.string().min(1).max(10)
+  ).min(1, "At least one horizon required").max(10, "Maximum 10 horizons allowed").default(['1H', '4H', '24H', '7D']),
+});
 
 // Authenticate user and check role
 async function authenticateUser(req: Request) {
@@ -50,7 +63,20 @@ serve(async (req) => {
     const { user, role } = await authenticateUser(req);
     console.log(`User ${user.id} (${role}) requesting ML price prediction`);
 
-    const { symbol = 'BTC/USD', horizons = ['1H', '4H', '24H', '7D'] } = await req.json();
+    // Parse and validate input
+    const rawInput = await req.json();
+    const parseResult = MLPredictionSchema.safeParse(rawInput);
+    
+    if (!parseResult.success) {
+      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      console.error('Validation error:', errorMessage);
+      return new Response(
+        JSON.stringify({ error: 'Invalid input', details: errorMessage }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { symbol, horizons } = parseResult.data;
     
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
