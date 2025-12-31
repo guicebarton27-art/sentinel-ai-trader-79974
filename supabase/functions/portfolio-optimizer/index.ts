@@ -1,10 +1,29 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Input validation schema
+const PortfolioSchema = z.object({
+  assets: z.array(
+    z.string()
+      .min(1)
+      .max(20)
+      .regex(/^[A-Z0-9]{2,10}\/[A-Z]{2,5}$|^[A-Z0-9]{4,12}$/, "Invalid asset symbol format")
+  ).min(1, "At least one asset required").max(20, "Maximum 20 assets allowed").default(['BTC/USD', 'ETH/USD', 'SOL/USD']),
+  total_capital: z.number()
+    .positive("Capital must be positive")
+    .min(100, "Minimum capital is $100")
+    .max(100000000, "Maximum capital is $100,000,000")
+    .default(10000),
+  risk_tolerance: z.enum(['conservative', 'moderate', 'aggressive'], {
+    errorMap: () => ({ message: "Risk tolerance must be: conservative, moderate, or aggressive" })
+  }).default('moderate'),
+});
 
 // Authenticate user and check role
 async function authenticateUser(req: Request) {
@@ -50,11 +69,20 @@ serve(async (req) => {
     const { user, role } = await authenticateUser(req);
     console.log(`User ${user.id} (${role}) requesting portfolio optimization`);
 
-    const { 
-      assets = ['BTC/USD', 'ETH/USD', 'SOL/USD'],
-      total_capital = 10000,
-      risk_tolerance = 'moderate' // conservative, moderate, aggressive
-    } = await req.json();
+    // Parse and validate input
+    const rawInput = await req.json();
+    const parseResult = PortfolioSchema.safeParse(rawInput);
+    
+    if (!parseResult.success) {
+      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      console.error('Validation error:', errorMessage);
+      return new Response(
+        JSON.stringify({ error: 'Invalid input', details: errorMessage }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { assets, total_capital, risk_tolerance } = parseResult.data;
     
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
