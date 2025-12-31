@@ -22,12 +22,50 @@ interface ChaosTest {
   test: () => Promise<{ passed: boolean; outcome: string; duration_ms: number }>;
 }
 
+// Authenticate user and check role - Admin only for chaos runner
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw { status: 401, message: 'Missing authorization header' };
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw { status: 401, message: 'Invalid or expired token' };
+  }
+
+  // Check user role - admin only for chaos runner (can cause system disruption)
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  const role = roleData?.role || 'viewer';
+  if (!['admin'].includes(role)) {
+    throw { status: 403, message: 'Admin role required for chaos runner access' };
+  }
+
+  return { user, role };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Authenticate user and verify role
+    const { user, role } = await authenticateUser(req);
+    console.log(`User ${user.id} (${role}) running chaos tests`);
+
     const { test_types = ['all'], intensity = 'medium' } = await req.json();
     
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -256,9 +294,12 @@ serve(async (req) => {
     
   } catch (error: any) {
     console.error('Error in chaos runner:', error);
+    
+    const isAuthError = error.status === 401 || error.status === 403;
+    
     return new Response(
-      JSON.stringify({ error: error?.message || 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: isAuthError ? error.message : 'Internal server error' }),
+      { status: error.status || 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
