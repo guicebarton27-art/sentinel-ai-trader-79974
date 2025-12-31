@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,11 @@ import {
   RefreshCw,
   ChevronRight,
   Sparkles,
-  BarChart3
+  BarChart3,
+  Rocket,
+  Pause,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -65,6 +69,17 @@ interface AutoMLResult {
   population: any[];
 }
 
+interface DeployedStrategy {
+  id: string;
+  name: string;
+  symbol: string;
+  status: string;
+  strategy_config: any;
+  performance_metrics: any;
+  deployed_at: string;
+  total_signals: number;
+}
+
 export const AutoMLAgent = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -74,7 +89,29 @@ export const AutoMLAgent = () => {
   const [populationSize, setPopulationSize] = useState(20);
   const [result, setResult] = useState<AutoMLResult | null>(null);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyResult | null>(null);
+  const [deployedStrategies, setDeployedStrategies] = useState<DeployedStrategy[]>([]);
+  const [isDeploying, setIsDeploying] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Fetch deployed strategies on mount
+  useEffect(() => {
+    fetchDeployedStrategies();
+  }, []);
+
+  const fetchDeployedStrategies = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('deploy-strategy', {
+        body: { action: 'list' }
+      });
+
+      if (error) throw error;
+      if (data.strategies) {
+        setDeployedStrategies(data.strategies);
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch deployed strategies:', error);
+    }
+  };
 
   const runEvolution = async () => {
     setIsRunning(true);
@@ -175,6 +212,71 @@ export const AutoMLAgent = () => {
     } finally {
       setIsRunning(false);
     }
+  };
+
+  const deployStrategy = async (strategy: StrategyResult) => {
+    setIsDeploying(strategy.id);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('deploy-strategy', {
+        body: {
+          action: 'deploy',
+          name: `AutoML-${symbol}-${strategy.id.slice(0, 8)}`,
+          symbol,
+          config: strategy.config,
+          performance: strategy.performance,
+        }
+      });
+
+      if (error) throw error;
+      if (data.error) throw new Error(data.error);
+
+      toast({
+        title: 'Strategy Deployed!',
+        description: `${data.message}. Strategy is now active in paper trading.`,
+      });
+
+      // Refresh deployed strategies list
+      await fetchDeployedStrategies();
+    } catch (error: any) {
+      console.error('Deploy error:', error);
+      toast({
+        title: 'Deployment Failed',
+        description: error.message || 'Failed to deploy strategy',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeploying(null);
+    }
+  };
+
+  const controlDeployedStrategy = async (strategyId: string, action: 'pause' | 'resume' | 'stop') => {
+    try {
+      const { data, error } = await supabase.functions.invoke('deploy-strategy', {
+        body: { action, strategyId }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Strategy Updated',
+        description: data.message,
+      });
+
+      await fetchDeployedStrategies();
+    } catch (error: any) {
+      toast({
+        title: 'Action Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const isStrategyDeployed = (strategyId: string) => {
+    return deployedStrategies.some(
+      ds => ds.name.includes(strategyId.slice(0, 8))
+    );
   };
 
   return (
@@ -413,47 +515,182 @@ export const AutoMLAgent = () => {
                     </div>
 
                     {selectedStrategy?.id === strategy.id && (
-                      <div className="mt-4 pt-4 border-t border-border/50 grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <div className="text-xs font-medium text-muted-foreground">Weights</div>
-                          <div className="space-y-1 text-xs">
-                            <div className="flex justify-between">
-                              <span>Trend</span>
-                              <span className="font-mono">{strategy.config.trendWeight.toFixed(3)}</span>
+                      <div className="mt-4 pt-4 border-t border-border/50">
+                        <div className="grid grid-cols-2 gap-4 mb-4">
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">Weights</div>
+                            <div className="space-y-1 text-xs">
+                              <div className="flex justify-between">
+                                <span>Trend</span>
+                                <span className="font-mono">{strategy.config.trendWeight.toFixed(3)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Mean Rev</span>
+                                <span className="font-mono">{strategy.config.meanRevWeight.toFixed(3)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Momentum</span>
+                                <span className="font-mono">{strategy.config.carryWeight.toFixed(3)}</span>
+                              </div>
                             </div>
-                            <div className="flex justify-between">
-                              <span>Mean Rev</span>
-                              <span className="font-mono">{strategy.config.meanRevWeight.toFixed(3)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Momentum</span>
-                              <span className="font-mono">{strategy.config.carryWeight.toFixed(3)}</span>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">Risk Params</div>
+                            <div className="space-y-1 text-xs">
+                              <div className="flex justify-between">
+                                <span>Stop Loss</span>
+                                <span className="font-mono">{(strategy.config.stopLoss * 100).toFixed(2)}%</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Take Profit</span>
+                                <span className="font-mono">{(strategy.config.takeProfit * 100).toFixed(2)}%</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Max Size</span>
+                                <span className="font-mono">{(strategy.config.maxPositionSize * 100).toFixed(0)}%</span>
+                              </div>
                             </div>
                           </div>
                         </div>
-                        <div className="space-y-2">
-                          <div className="text-xs font-medium text-muted-foreground">Risk Params</div>
-                          <div className="space-y-1 text-xs">
-                            <div className="flex justify-between">
-                              <span>Stop Loss</span>
-                              <span className="font-mono">{(strategy.config.stopLoss * 100).toFixed(2)}%</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Take Profit</span>
-                              <span className="font-mono">{(strategy.config.takeProfit * 100).toFixed(2)}%</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Max Size</span>
-                              <span className="font-mono">{(strategy.config.maxPositionSize * 100).toFixed(0)}%</span>
-                            </div>
-                          </div>
-                        </div>
+                        
+                        {/* Deploy Button */}
+                        <Button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deployStrategy(strategy);
+                          }}
+                          disabled={isDeploying === strategy.id || isStrategyDeployed(strategy.id)}
+                          className="w-full gap-2"
+                          variant={isStrategyDeployed(strategy.id) ? 'secondary' : 'default'}
+                        >
+                          {isDeploying === strategy.id ? (
+                            <>
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                              Deploying...
+                            </>
+                          ) : isStrategyDeployed(strategy.id) ? (
+                            <>
+                              <CheckCircle className="h-4 w-4" />
+                              Already Deployed
+                            </>
+                          ) : (
+                            <>
+                              <Rocket className="h-4 w-4" />
+                              Deploy to Paper Trading
+                            </>
+                          )}
+                        </Button>
                       </div>
                     )}
                   </div>
                 ))}
               </div>
             </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Deployed Strategies */}
+      {deployedStrategies.length > 0 && (
+        <Card className="glass-panel border-success/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Rocket className="h-4 w-4 text-success" />
+              Deployed Strategies ({deployedStrategies.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {deployedStrategies.map((ds) => (
+                <div
+                  key={ds.id}
+                  className="p-4 rounded-lg border border-border/50 bg-secondary/20"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${
+                        ds.status === 'paper' ? 'bg-success animate-pulse' :
+                        ds.status === 'paused' ? 'bg-warning' :
+                        'bg-muted'
+                      }`} />
+                      <div>
+                        <div className="font-medium text-sm">{ds.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {ds.symbol} • Deployed {new Date(ds.deployed_at).toLocaleDateString()}
+                        </div>
+                      </div>
+                    </div>
+                    <Badge variant={
+                      ds.status === 'paper' ? 'default' :
+                      ds.status === 'paused' ? 'secondary' :
+                      'outline'
+                    }>
+                      {ds.status === 'paper' ? 'Active' : ds.status}
+                    </Badge>
+                  </div>
+
+                  {ds.performance_metrics && (
+                    <div className="grid grid-cols-4 gap-2 text-center mb-3">
+                      <div>
+                        <div className="text-sm font-medium">
+                          {ds.performance_metrics.totalReturn?.toFixed(1)}%
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">Return</div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium">
+                          {ds.performance_metrics.sharpeRatio?.toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">Sharpe</div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium">
+                          {ds.performance_metrics.winRate?.toFixed(1)}%
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">Win Rate</div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium">{ds.total_signals}</div>
+                        <div className="text-[10px] text-muted-foreground">Signals</div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    {ds.status === 'paper' ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => controlDeployedStrategy(ds.id, 'pause')}
+                        className="flex-1 gap-1"
+                      >
+                        <Pause className="h-3 w-3" />
+                        Pause
+                      </Button>
+                    ) : ds.status === 'paused' ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => controlDeployedStrategy(ds.id, 'resume')}
+                        className="flex-1 gap-1"
+                      >
+                        <Play className="h-3 w-3" />
+                        Resume
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => controlDeployedStrategy(ds.id, 'stop')}
+                      className="gap-1"
+                    >
+                      <Square className="h-3 w-3" />
+                      Stop
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}

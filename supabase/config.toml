@@ -56,3 +56,6 @@ verify_jwt = true
 
 [functions.automl-agent]
 verify_jwt = true
+
+[functions.deploy-strategy]
+verify_jwt = true
