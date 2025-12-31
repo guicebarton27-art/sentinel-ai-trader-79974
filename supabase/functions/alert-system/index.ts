@@ -17,12 +17,50 @@ interface AlertRequest {
   channels?: ('database' | 'webhook' | 'email')[];
 }
 
+// Authenticate user and check role - Trader/Admin for alert system
+async function authenticateUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) {
+    throw { status: 401, message: 'Missing authorization header' };
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } }
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw { status: 401, message: 'Invalid or expired token' };
+  }
+
+  // Check user role - traders and admins can use alert system
+  const { data: roleData } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  const role = roleData?.role || 'viewer';
+  if (!['admin', 'trader'].includes(role)) {
+    throw { status: 403, message: 'Trader or admin role required for alert system access' };
+  }
+
+  return { user, role };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    // Authenticate user and verify role
+    const { user, role } = await authenticateUser(req);
+    console.log(`User ${user.id} (${role}) accessing alert system`);
+
     const { action, ...params } = await req.json();
     
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -197,9 +235,12 @@ serve(async (req) => {
     
   } catch (error: any) {
     console.error('Error in alert system:', error);
+    
+    const isAuthError = error.status === 401 || error.status === 403;
+    
     return new Response(
-      JSON.stringify({ error: error?.message || 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: isAuthError ? error.message : 'Internal server error' }),
+      { status: error.status || 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
