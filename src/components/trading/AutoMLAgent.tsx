@@ -84,7 +84,7 @@ export const AutoMLAgent = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentGen, setCurrentGen] = useState(0);
-  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [symbol, setSymbol] = useState('BTC/USD');
   const [generations, setGenerations] = useState(5);
   const [populationSize, setPopulationSize] = useState(20);
   const [result, setResult] = useState<AutoMLResult | null>(null);
@@ -305,14 +305,14 @@ export const AutoMLAgent = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Symbol</label>
-              <Select value={symbol} onValueChange={setSymbol} disabled={isRunning}>
+            <Select value={symbol} onValueChange={setSymbol} disabled={isRunning}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="BTCUSDT">BTC/USDT</SelectItem>
-                  <SelectItem value="ETHUSDT">ETH/USDT</SelectItem>
-                  <SelectItem value="SOLUSDT">SOL/USDT</SelectItem>
+                  <SelectItem value="BTC/USD">BTC/USD</SelectItem>
+                  <SelectItem value="ETH/USD">ETH/USD</SelectItem>
+                  <SelectItem value="SOL/USD">SOL/USD</SelectItem>
                 </SelectContent>
               </Select>
             </div>

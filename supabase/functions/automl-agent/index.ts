@@ -339,7 +339,7 @@ serve(async (req) => {
     console.log(`User ${user.id} running AutoML agent`);
 
     const { 
-      symbol = 'BTCUSDT',
+      symbol = 'BTC/USD',
       interval = '1h',
       populationSize = 20,
       generations = 5,
