@@ -1,7 +1,7 @@
 project_id = "swpjpzsnqpamdchdlkpf"
 
 [functions.bot-engine]
-verify_jwt = true
+verify_jwt = false
 
 [functions.ml-price-prediction]
 verify_jwt = true
