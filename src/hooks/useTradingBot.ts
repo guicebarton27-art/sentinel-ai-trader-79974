@@ -18,51 +18,72 @@ export const useTradingBot = () => {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const projectRef = 'swpjpzsnqpamdchdlkpf';
-    const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/bot-engine`;
+    let ws: WebSocket | null = null;
 
-    console.log('Connecting to trading bot WebSocket:', wsUrl);
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('Trading bot WebSocket connected');
-      setIsConnected(true);
-    };
-
-    ws.onmessage = (event) => {
+    const connectWebSocket = async () => {
       try {
-        const data = JSON.parse(event.data);
-        if (data.topic === 'telemetry.v1') {
-          setTelemetry({
-            status: data.status,
-            mode: data.mode,
-            nav: data.nav,
-            startingNav: data.startingNav,
-            pnl: data.pnl,
-            pnlPercentage: data.pnlPercentage,
-            ordersToday: data.ordersToday,
-            timestamp: data.timestamp,
-          });
+        // Get the current session for authentication
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session?.access_token) {
+          console.log('No auth session, skipping WebSocket connection');
+          return;
         }
+
+        const projectRef = 'swpjpzsnqpamdchdlkpf';
+        const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/bot-engine`;
+
+        console.log('Connecting to trading bot WebSocket:', wsUrl);
+
+        // Pass the JWT token as a query parameter for authentication
+        ws = new WebSocket(`${wsUrl}?apikey=${session.access_token}`);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          console.log('Trading bot WebSocket connected');
+          setIsConnected(true);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.topic === 'telemetry.v1') {
+              setTelemetry({
+                status: data.status,
+                mode: data.mode,
+                nav: data.nav,
+                startingNav: data.startingNav,
+                pnl: data.pnl,
+                pnlPercentage: data.pnlPercentage,
+                ordersToday: data.ordersToday,
+                timestamp: data.timestamp,
+              });
+            }
+          } catch (error) {
+            console.error('Error parsing telemetry:', error);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('Trading bot WebSocket error:', error);
+          setIsConnected(false);
+        };
+
+        ws.onclose = () => {
+          console.log('Trading bot WebSocket disconnected');
+          setIsConnected(false);
+        };
       } catch (error) {
-        console.error('Error parsing telemetry:', error);
+        console.error('Error setting up WebSocket:', error);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('Trading bot WebSocket error:', error);
-      setIsConnected(false);
-    };
-
-    ws.onclose = () => {
-      console.log('Trading bot WebSocket disconnected');
-      setIsConnected(false);
-    };
+    connectWebSocket();
 
     return () => {
-      ws.close();
+      if (ws) {
+        ws.close();
+      }
     };
   }, []);
 
