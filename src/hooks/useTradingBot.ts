@@ -18,7 +18,7 @@ export const useTradingBot = () => {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const projectRef = 'quqbcaxekircoafovood';
+    const projectRef = 'swpjpzsnqpamdchdlkpf';
     const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/bot-engine`;
 
     console.log('Connecting to trading bot WebSocket:', wsUrl);
