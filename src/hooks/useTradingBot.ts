@@ -16,13 +16,16 @@ export const useTradingBot = () => {
   const [telemetry, setTelemetry] = useState<BotTelemetry | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const maxReconnectAttempts = 10;
+  const baseReconnectDelay = 1000;
 
   useEffect(() => {
-    let ws: WebSocket | null = null;
+    let shouldReconnect = true;
 
     const connectWebSocket = async () => {
       try {
-        // Get the current session for authentication
         const { data: { session } } = await supabase.auth.getSession();
         
         if (!session?.access_token) {
@@ -35,13 +38,13 @@ export const useTradingBot = () => {
 
         console.log('Connecting to trading bot WebSocket:', wsUrl);
 
-        // Pass the JWT token as a query parameter for authentication
-        ws = new WebSocket(`${wsUrl}?apikey=${session.access_token}`);
+        const ws = new WebSocket(`${wsUrl}?apikey=${session.access_token}`);
         wsRef.current = ws;
 
         ws.onopen = () => {
           console.log('Trading bot WebSocket connected');
           setIsConnected(true);
+          reconnectAttemptRef.current = 0;
         };
 
         ws.onmessage = (event) => {
@@ -66,12 +69,19 @@ export const useTradingBot = () => {
 
         ws.onerror = (error) => {
           console.error('Trading bot WebSocket error:', error);
-          setIsConnected(false);
         };
 
         ws.onclose = () => {
           console.log('Trading bot WebSocket disconnected');
           setIsConnected(false);
+          wsRef.current = null;
+
+          if (shouldReconnect && reconnectAttemptRef.current < maxReconnectAttempts) {
+            const delay = Math.min(baseReconnectDelay * Math.pow(2, reconnectAttemptRef.current), 30000);
+            console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current + 1}/${maxReconnectAttempts})`);
+            reconnectAttemptRef.current++;
+            reconnectTimeoutRef.current = setTimeout(connectWebSocket, delay);
+          }
         };
       } catch (error) {
         console.error('Error setting up WebSocket:', error);
@@ -81,8 +91,12 @@ export const useTradingBot = () => {
     connectWebSocket();
 
     return () => {
-      if (ws) {
-        ws.close();
+      shouldReconnect = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
       }
     };
   }, []);
