@@ -26,19 +26,12 @@ export const useTradingBot = () => {
 
     const connectWebSocket = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session?.access_token) {
-          console.log('No auth session, skipping WebSocket connection');
-          return;
-        }
-
         const projectRef = 'swpjpzsnqpamdchdlkpf';
         const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/bot-engine`;
 
         console.log('Connecting to trading bot WebSocket:', wsUrl);
 
-        const ws = new WebSocket(`${wsUrl}?apikey=${session.access_token}`);
+        const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
