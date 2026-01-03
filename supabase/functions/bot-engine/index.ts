@@ -1,4 +1,41 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// Authentication helper
+async function authenticateRequest(req: Request): Promise<{ userId: string; email: string } | null> {
+  const url = new URL(req.url);
+  
+  // Check for token in query params (for WebSocket) or Authorization header (for HTTP)
+  const token = url.searchParams.get('token') || 
+                req.headers.get('Authorization')?.replace('Bearer ', '');
+  
+  if (!token) {
+    console.log('No authentication token provided');
+    return null;
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } }
+    });
+
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      console.error('Auth validation failed:', error?.message);
+      return null;
+    }
+
+    console.log('User authenticated:', user.id);
+    return { userId: user.id, email: user.email || '' };
+  } catch (error) {
+    console.error('Authentication error:', error);
+    return null;
+  }
+}
 
 // Shared bot state across all connections
 const bot = {
@@ -97,10 +134,22 @@ serve(async (req) => {
 
   // Handle WebSocket connections for telemetry
   if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+    // Validate authentication before upgrading WebSocket
+    const authUser = await authenticateRequest(req);
+    
+    if (!authUser) {
+      console.log('WebSocket connection rejected: unauthorized');
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log(`WebSocket auth successful for user: ${authUser.userId}`);
     const { socket, response } = Deno.upgradeWebSocket(req);
 
     socket.onopen = () => {
-      console.log("WebSocket client connected");
+      console.log(`WebSocket client connected (user: ${authUser.userId})`);
       ensureLoop();
       bot.listeners.add(socket);
 
@@ -134,6 +183,16 @@ serve(async (req) => {
 
   // Handle HTTP control commands
   if (req.method === 'POST') {
+    // Validate authentication for HTTP commands
+    const authUser = await authenticateRequest(req);
+    
+    if (!authUser) {
+      console.log('HTTP request rejected: unauthorized');
+      return json({ error: 'Unauthorized' }, 401);
+    }
+
+    console.log(`HTTP command from user: ${authUser.userId}`);
+
     try {
       const body = await req.json().catch(() => ({}));
 

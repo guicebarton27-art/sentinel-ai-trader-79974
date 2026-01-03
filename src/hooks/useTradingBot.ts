@@ -26,16 +26,24 @@ export const useTradingBot = () => {
 
     const connectWebSocket = async () => {
       try {
-        const projectRef = 'swpjpzsnqpamdchdlkpf';
-        const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/bot-engine`;
+        // Get the current session for authentication
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session?.access_token) {
+          console.log('No auth session, skipping WebSocket connection');
+          return;
+        }
 
-        console.log('Connecting to trading bot WebSocket:', wsUrl);
+        const projectRef = 'swpjpzsnqpamdchdlkpf';
+        const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/bot-engine?token=${session.access_token}`;
+
+        console.log('Connecting to trading bot WebSocket with auth');
 
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
-          console.log('Trading bot WebSocket connected');
+          console.log('Trading bot WebSocket connected (authenticated)');
           setIsConnected(true);
           reconnectAttemptRef.current = 0;
         };
