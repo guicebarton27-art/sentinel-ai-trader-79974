@@ -188,14 +188,48 @@ Be precise and actionable.`;
       }),
     });
 
-    if (!response.ok) {
-      throw new Error('AI service error');
-    }
+    let analysis = '';
+    let usedFallback = false;
 
-    const data = await response.json();
-    const analysis = data.choices[0].message.content;
+    if (!response.ok) {
+      if (response.status === 429) {
+        console.log('Rate limited, using rule-based fallback');
+        usedFallback = true;
+        // Generate rule-based recommendation when rate limited
+        const trend = currentPrice > sma20 && sma20 > sma50 ? 'bullish' : 
+                     currentPrice < sma20 && sma20 < sma50 ? 'bearish' : 'neutral';
+        const action = trend === 'bullish' && rsi < 70 ? 'buy' : 
+                      trend === 'bearish' && rsi > 30 ? 'sell' : 'hold';
+        const regime = volatility > 3 ? 'volatile' : volatility < 1 ? 'quiet' : 'trending';
+        
+        analysis = `1. Primary Strategy: ${trend === 'bullish' ? 'trend_following' : trend === 'bearish' ? 'mean_reversion' : 'momentum'}
+2. Action: ${action}
+3. Confidence: ${Math.abs(avgPredictedChange) > 2 ? 0.8 : 0.6}
+4. Entry Price: $${currentPrice.toFixed(2)}
+5. Position Size: ${risk_tolerance === 'aggressive' ? 10 : risk_tolerance === 'conservative' ? 3 : 5}%
+6. Stop Loss: $${(currentPrice * (action === 'buy' ? 0.97 : 1.03)).toFixed(2)}
+7. Take Profit Targets: $${(currentPrice * 1.02).toFixed(2)} (50%), $${(currentPrice * 1.04).toFixed(2)} (30%), $${(currentPrice * 1.06).toFixed(2)} (20%)
+8. Time Horizon: swing
+9. Market Regime: ${regime}
+10. Risk/Reward Ratio: 2.5
+11. Alternative Strategies: scalping, breakout
+12. Key Signals: Price ${currentPrice > sma20 ? 'above' : 'below'} SMA20, RSI at ${rsi.toFixed(1)}, MACD ${macd > 0 ? 'positive' : 'negative'}
+13. Risk Factors: Market volatility at ${volatility.toFixed(1)}%, sentiment ${avgSentiment > 0 ? 'positive' : 'mixed'}
+14. Execution Notes: Use limit orders, scale into position`;
+      } else if (response.status === 402) {
+        console.error('Payment required for AI service');
+        throw new Error('AI credits exhausted. Please add funds to continue.');
+      } else {
+        const errorText = await response.text();
+        console.error('AI API error:', response.status, errorText);
+        throw new Error('AI service temporarily unavailable');
+      }
+    } else {
+      const data = await response.json();
+      analysis = data.choices[0].message.content;
+    }
     
-    console.log('Strategy recommendation:', analysis);
+    console.log('Strategy recommendation:', usedFallback ? '(fallback)' : '(AI)', analysis.slice(0, 200));
 
     // Parse recommendations
     const strategyMatch = analysis.match(/Primary Strategy[:\s]+([\w_]+)/i);
@@ -239,6 +273,7 @@ Be precise and actionable.`;
         sentiment: avgSentiment,
       },
       full_analysis: analysis,
+      used_fallback: usedFallback,
     };
 
     return new Response(
