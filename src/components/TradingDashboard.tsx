@@ -19,7 +19,8 @@ import {
   Cpu,
   Bot,
   Wallet,
-  AlertOctagon
+  AlertOctagon,
+  TestTube
 } from 'lucide-react';
 import { CriticalPanel } from './trading/CriticalPanel';
 import { CompactExecutionPanel } from './trading/CompactExecutionPanel';
@@ -215,6 +216,16 @@ export const TradingDashboard = () => {
                 <Switch checked={minimalMode} onCheckedChange={setMinimalMode} className="scale-90" />
               </div>
               
+              <Button 
+                variant="ghost" 
+                size="icon"
+                className="rounded-xl"
+                onClick={() => navigate('/self-test')}
+                title="Self-Test"
+              >
+                <TestTube className="h-4 w-4" />
+              </Button>
+
               <Button 
                 variant="ghost" 
                 size="icon"

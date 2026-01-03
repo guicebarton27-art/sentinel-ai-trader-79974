@@ -512,6 +512,30 @@ export type Database = {
         }
         Relationships: []
       }
+      test_runs: {
+        Row: {
+          created_at: string
+          id: string
+          results_json: Json
+          run_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          results_json: Json
+          run_id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          results_json?: Json
+          run_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       trading_sessions: {
         Row: {
           created_at: string
