@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,65 +7,70 @@ import { Badge } from '@/components/ui/badge';
 import { 
   Key, 
   Plus, 
-  Eye, 
-  EyeOff, 
   Trash2, 
   Shield, 
   CheckCircle, 
   AlertCircle,
-  Settings
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ApiKeyEntry {
   id: string;
   exchange: string;
-  label: string;
-  status: 'active' | 'inactive' | 'error';
-  permissions: string[];
-  lastUsed: Date | null;
-  created: Date;
+  key_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export const ApiKeyManager = () => {
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [newKey, setNewKey] = useState({ 
     exchange: 'kraken', 
     label: '', 
     apiKey: '', 
-    secret: '', 
-    passphrase: '' 
+    secret: ''
   });
+  const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([]);
   const { toast } = useToast();
-
-  // Mock data - will be replaced with actual Supabase data
-  const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([
-    {
-      id: '1',
-      exchange: 'kraken',
-      label: 'Main Trading Account',
-      status: 'active',
-      permissions: ['trade', 'balance', 'history'],
-      lastUsed: new Date('2024-01-15'),
-      created: new Date('2024-01-01')
-    },
-    {
-      id: '2', 
-      exchange: 'binance',
-      label: 'Backup Account',
-      status: 'inactive',
-      permissions: ['balance', 'history'],
-      lastUsed: null,
-      created: new Date('2024-01-10')
-    }
-  ]);
 
   const exchanges = [
     { value: 'kraken', label: 'Kraken Pro', icon: '🐙' },
     { value: 'binance', label: 'Binance', icon: '🔶' },
     { value: 'coinbase', label: 'Coinbase Pro', icon: '🔵' }
   ];
+
+  const fetchApiKeys = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.functions.invoke('manage-api-keys', {
+        body: { action: 'list' }
+      });
+
+      if (error) throw error;
+      if (data?.keys) {
+        setApiKeys(data.keys);
+      }
+    } catch (error) {
+      console.error('Error fetching API keys:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load API keys",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchApiKeys();
+  }, []);
 
   const handleAddApiKey = async () => {
     if (!newKey.label || !newKey.apiKey || !newKey.secret) {
@@ -77,47 +82,69 @@ export const ApiKeyManager = () => {
       return;
     }
 
-    try {
-      // TODO: Store in Supabase secrets
-      // await storeApiKeyInSupabase(newKey);
-      
-      const newEntry: ApiKeyEntry = {
-        id: Math.random().toString(36).substr(2, 9),
-        exchange: newKey.exchange,
-        label: newKey.label,
-        status: 'active',
-        permissions: ['trade', 'balance', 'history'],
-        lastUsed: null,
-        created: new Date()
-      };
-
-      setApiKeys([...apiKeys, newEntry]);
-      setNewKey({ exchange: 'kraken', label: '', apiKey: '', secret: '', passphrase: '' });
-      setShowAddForm(false);
-
+    // Basic validation
+    if (newKey.label.length > 100) {
       toast({
-        title: "API Key Added",
-        description: `Successfully added ${newKey.label} for ${newKey.exchange}`,
+        title: "Invalid Input",
+        description: "Label must be less than 100 characters",
+        variant: "destructive"
       });
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      const { data, error } = await supabase.functions.invoke('manage-api-keys', {
+        body: {
+          action: 'add',
+          exchange: newKey.exchange,
+          key_name: newKey.label,
+          api_key: newKey.apiKey,
+          api_secret: newKey.secret
+        }
+      });
+
+      if (error) throw error;
+      
+      if (data?.key) {
+        setApiKeys([data.key, ...apiKeys]);
+        setNewKey({ exchange: 'kraken', label: '', apiKey: '', secret: '' });
+        setShowAddForm(false);
+
+        toast({
+          title: "API Key Added",
+          description: `Successfully added ${newKey.label} for ${newKey.exchange}. Key is encrypted and stored securely.`,
+        });
+      }
     } catch (error) {
+      console.error('Error adding API key:', error);
       toast({
         title: "Error",
         description: "Failed to add API key. Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDeleteApiKey = async (id: string) => {
+  const handleDeleteApiKey = async (id: string, keyName: string) => {
     try {
-      // TODO: Remove from Supabase secrets
+      const { error } = await supabase.functions.invoke('manage-api-keys', {
+        body: { action: 'delete', key_id: id }
+      });
+
+      if (error) throw error;
+      
       setApiKeys(apiKeys.filter(key => key.id !== id));
       
       toast({
         title: "API Key Deleted",
-        description: "API key has been securely removed",
+        description: `${keyName} has been securely removed`,
       });
     } catch (error) {
+      console.error('Error deleting API key:', error);
       toast({
         title: "Error", 
         description: "Failed to delete API key",
@@ -126,17 +153,36 @@ export const ApiKeyManager = () => {
     }
   };
 
-  const toggleSecretVisibility = (id: string) => {
-    setShowSecrets(prev => ({ ...prev, [id]: !prev[id] }));
+  const handleToggleActive = async (id: string, currentStatus: boolean) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('manage-api-keys', {
+        body: { action: 'toggle', key_id: id, is_active: !currentStatus }
+      });
+
+      if (error) throw error;
+      
+      setApiKeys(apiKeys.map(key => 
+        key.id === id ? { ...key, is_active: !currentStatus } : key
+      ));
+      
+      toast({
+        title: "Status Updated",
+        description: `API key is now ${!currentStatus ? 'active' : 'inactive'}`,
+      });
+    } catch (error) {
+      console.error('Error toggling API key:', error);
+      toast({
+        title: "Error", 
+        description: "Failed to update API key status",
+        variant: "destructive"
+      });
+    }
   };
 
-  const getStatusColor = (status: ApiKeyEntry['status']) => {
-    switch (status) {
-      case 'active': return 'bg-success text-success-foreground';
-      case 'inactive': return 'bg-muted text-muted-foreground';
-      case 'error': return 'bg-destructive text-destructive-foreground';
-      default: return 'bg-muted text-muted-foreground';
-    }
+  const getStatusColor = (isActive: boolean) => {
+    return isActive 
+      ? 'bg-success text-success-foreground' 
+      : 'bg-muted text-muted-foreground';
   };
 
   const getExchangeIcon = (exchange: string) => {
@@ -157,17 +203,27 @@ export const ApiKeyManager = () => {
               <div>
                 <CardTitle>API Key Management</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Securely manage exchange API keys for automated trading
+                  Securely manage exchange API keys with AES-256 encryption
                 </p>
               </div>
             </div>
-            <Button 
-              onClick={() => setShowAddForm(!showAddForm)}
-              className="flex items-center gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              Add API Key
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={fetchApiKeys}
+                disabled={loading}
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+              <Button 
+                onClick={() => setShowAddForm(!showAddForm)}
+                className="flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add API Key
+              </Button>
+            </div>
           </div>
         </CardHeader>
       </Card>
@@ -205,6 +261,7 @@ export const ApiKeyManager = () => {
                   id="label"
                   placeholder="e.g., Main Trading Account"
                   value={newKey.label}
+                  maxLength={100}
                   onChange={(e) => setNewKey({ ...newKey, label: e.target.value })}
                 />
               </div>
@@ -218,6 +275,7 @@ export const ApiKeyManager = () => {
                 placeholder="Enter your API key"
                 value={newKey.apiKey}
                 onChange={(e) => setNewKey({ ...newKey, apiKey: e.target.value })}
+                autoComplete="off"
               />
             </div>
 
@@ -229,30 +287,18 @@ export const ApiKeyManager = () => {
                 placeholder="Enter your API secret"
                 value={newKey.secret}
                 onChange={(e) => setNewKey({ ...newKey, secret: e.target.value })}
+                autoComplete="off"
               />
             </div>
 
-            {newKey.exchange === 'coinbase' && (
-              <div className="space-y-2">
-                <Label htmlFor="passphrase">Passphrase</Label>
-                <Input
-                  id="passphrase"
-                  type="password"
-                  placeholder="Enter your passphrase (Coinbase Pro only)"
-                  value={newKey.passphrase}
-                  onChange={(e) => setNewKey({ ...newKey, passphrase: e.target.value })}
-                />
-              </div>
-            )}
-
-            <div className="bg-muted/50 p-3 rounded-lg">
+            <div className="bg-success/10 border border-success/20 p-3 rounded-lg">
               <div className="flex items-start gap-2">
-                <Shield className="h-4 w-4 text-algo-primary mt-0.5" />
+                <Shield className="h-4 w-4 text-success mt-0.5" />
                 <div className="text-sm">
-                  <p className="font-medium">Security Notice</p>
+                  <p className="font-medium text-success">Secure Storage</p>
                   <p className="text-muted-foreground">
-                    API keys are encrypted and stored securely using Supabase Vault. 
-                    Only grant necessary permissions (trading, balance reading).
+                    API keys are encrypted using AES-256-GCM before storage. 
+                    Keys are never stored in plain text or browser memory.
                   </p>
                 </div>
               </div>
@@ -262,118 +308,111 @@ export const ApiKeyManager = () => {
               <Button 
                 variant="outline" 
                 onClick={() => setShowAddForm(false)}
+                disabled={saving}
               >
                 Cancel
               </Button>
-              <Button onClick={handleAddApiKey}>
-                <Key className="h-4 w-4 mr-2" />
-                Add API Key
+              <Button onClick={handleAddApiKey} disabled={saving}>
+                {saving ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Key className="h-4 w-4 mr-2" />
+                )}
+                {saving ? 'Encrypting...' : 'Add API Key'}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
+      {/* Loading State */}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading API keys...</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* API Keys List */}
-      <div className="space-y-4">
-        {apiKeys.map((key) => (
-          <Card key={key.id} className="transition-all hover:shadow-md">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="text-2xl">{getExchangeIcon(key.exchange)}</div>
-                  
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold">{key.label}</h3>
-                      <Badge className={getStatusColor(key.status)}>
-                        {key.status === 'active' && <CheckCircle className="h-3 w-3 mr-1" />}
-                        {key.status === 'error' && <AlertCircle className="h-3 w-3 mr-1" />}
-                        {key.status}
-                      </Badge>
-                    </div>
+      {!loading && (
+        <div className="space-y-4">
+          {apiKeys.map((key) => (
+            <Card key={key.id} className="transition-all hover:shadow-md">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="text-2xl">{getExchangeIcon(key.exchange)}</div>
                     
-                    <p className="text-sm text-muted-foreground capitalize">
-                      {key.exchange} Exchange
-                    </p>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold">{key.key_name}</h3>
+                        <Badge className={getStatusColor(key.is_active)}>
+                          {key.is_active ? (
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                          ) : (
+                            <AlertCircle className="h-3 w-3 mr-1" />
+                          )}
+                          {key.is_active ? 'active' : 'inactive'}
+                        </Badge>
+                      </div>
+                      
+                      <p className="text-sm text-muted-foreground capitalize">
+                        {key.exchange} Exchange
+                      </p>
+                      
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Shield className="h-3 w-3" />
+                          AES-256 Encrypted
+                        </span>
+                        <span>•</span>
+                        <span>Created: {new Date(key.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleToggleActive(key.id, key.is_active)}
+                    >
+                      {key.is_active ? 'Disable' : 'Enable'}
+                    </Button>
                     
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>Permissions: {key.permissions.join(', ')}</span>
-                      <span>•</span>
-                      <span>
-                        Last used: {key.lastUsed ? key.lastUsed.toLocaleDateString() : 'Never'}
-                      </span>
-                      <span>•</span>
-                      <span>Created: {key.created.toLocaleDateString()}</span>
-                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDeleteApiKey(key.id, key.key_name)}
+                      className="text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          ))}
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => toggleSecretVisibility(key.id)}
-                  >
-                    {showSecrets[key.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                  
-                  <Button variant="outline" size="sm">
-                    <Settings className="h-4 w-4" />
-                  </Button>
-                  
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDeleteApiKey(key.id)}
-                    className="text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              {showSecrets[key.id] && (
-                <div className="mt-4 p-3 bg-muted/30 rounded-lg border-l-4 border-l-algo-primary">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Key className="h-4 w-4 text-algo-primary" />
-                    <span className="text-sm font-medium">API Credentials</span>
-                  </div>
-                  <div className="grid gap-2 text-sm font-mono">
-                    <div>
-                      <span className="text-muted-foreground">Key:</span> 
-                      <span className="ml-2">••••••••••••••••</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Secret:</span> 
-                      <span className="ml-2">••••••••••••••••</span>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Actual keys are encrypted and stored securely in Supabase Vault
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-
-        {apiKeys.length === 0 && !showAddForm && (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <Key className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No API Keys Added</h3>
-              <p className="text-muted-foreground mb-4">
-                Add your exchange API keys to enable automated trading
-              </p>
-              <Button onClick={() => setShowAddForm(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Your First API Key
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+          {apiKeys.length === 0 && !showAddForm && (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <Key className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No API Keys Added</h3>
+                <p className="text-muted-foreground mb-4">
+                  Add your exchange API keys to enable automated trading
+                </p>
+                <Button onClick={() => setShowAddForm(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Your First API Key
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 };
