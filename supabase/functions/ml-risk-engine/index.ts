@@ -191,14 +191,47 @@ Use quantitative risk models and market regime analysis.`;
       }),
     });
 
-    if (!response.ok) {
-      throw new Error('AI service error');
-    }
+    let analysis = '';
+    let usedFallback = false;
 
-    const data = await response.json();
-    const analysis = data.choices[0].message.content;
+    if (!response.ok) {
+      if (response.status === 429) {
+        console.log('Rate limited, using rule-based risk fallback');
+        usedFallback = true;
+        
+        // Rule-based risk assessment fallback
+        const riskLevel = volatility > 0.8 ? 'high' : volatility > 0.4 ? 'medium' : 'low';
+        const riskScore = Math.min(100, Math.floor(volatility * 50 + maxDrawdown * 100 + Math.abs(var95) * 200));
+        const recommendedSize = volatility > 0.6 ? 2 : volatility > 0.3 ? 5 : 10;
+        const stopLoss = currentPrice * (1 - Math.max(0.02, volatility * 0.1));
+        const takeProfit = currentPrice * (1 + Math.max(0.03, volatility * 0.15));
+        const maxLev = volatility > 0.6 ? 2 : volatility > 0.3 ? 5 : 10;
+        
+        analysis = `1. Risk Level: ${riskLevel}
+2. Volatility Forecast (24h): ${(volatility * 100).toFixed(1)}%
+3. Drawdown Probability (24h): ${(maxDrawdown * 0.5).toFixed(2)}
+4. Recommended Position Size: ${recommendedSize}%
+5. Suggested Stop Loss: $${stopLoss.toFixed(2)}
+6. Suggested Take Profit: $${takeProfit.toFixed(2)}
+7. Max Leverage: ${maxLev}x
+8. Portfolio Heat: ${Math.min(100, riskScore * 0.8).toFixed(0)}%
+9. Risk Score: ${riskScore}
+10. Risk Factors: Volatility at ${(volatility * 100).toFixed(1)}%, Max drawdown ${(maxDrawdown * 100).toFixed(1)}%, VaR ${(Math.abs(var95) * 100).toFixed(1)}%
+11. Recommendations: Monitor volatility closely, use stop-losses, consider position sizing based on current market conditions.`;
+      } else if (response.status === 402) {
+        console.error('Payment required for AI service');
+        throw new Error('AI credits exhausted. Please add funds to continue.');
+      } else {
+        const errorText = await response.text();
+        console.error('AI API error:', response.status, errorText);
+        throw new Error('AI service temporarily unavailable');
+      }
+    } else {
+      const data = await response.json();
+      analysis = data.choices[0].message.content;
+    }
     
-    console.log('ML risk analysis:', analysis);
+    console.log('ML risk analysis:', usedFallback ? '(fallback)' : '(AI)', analysis.slice(0, 150));
 
     // Parse risk assessment
     const riskLevelMatch = analysis.match(/Risk Level[:\s]+(low|medium|high|extreme)/i);
