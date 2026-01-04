@@ -193,15 +193,42 @@ Be data-driven and realistic in your analysis.`;
           }),
         });
 
-        if (!response.ok) {
-          console.error(`AI API error for ${horizon}: ${response.status}`);
-          continue;
-        }
+        let analysis = '';
+        let usedFallback = false;
 
-        const data = await response.json();
-        const analysis = data.choices[0].message.content;
+        if (!response.ok) {
+          if (response.status === 429) {
+            console.log(`Rate limited for ${horizon}, using rule-based fallback`);
+            usedFallback = true;
+            
+            // Rule-based prediction fallback
+            const trend = currentPrice > sma20 && sma20 > sma50 ? 'up' : 
+                         currentPrice < sma20 && sma20 < sma50 ? 'down' : 'sideways';
+            const horizonMultiplier = horizon === '1H' ? 0.5 : horizon === '4H' ? 1 : horizon === '24H' ? 2 : 4;
+            const expectedChange = momentum * horizonMultiplier * 0.3;
+            const predictedPrice = currentPrice * (1 + expectedChange / 100);
+            
+            analysis = `1. Predicted Price: $${predictedPrice.toFixed(2)}
+2. Direction: ${trend}
+3. Confidence: ${Math.abs(momentum) > 2 ? 0.75 : 0.6}
+4. Expected Change %: ${expectedChange.toFixed(2)}%
+5. Support Level: $${(currentPrice * 0.97).toFixed(2)}
+6. Resistance Level: $${(currentPrice * 1.03).toFixed(2)}
+7. Volatility Forecast: ${volatility > 3 ? 'high' : volatility < 1 ? 'low' : 'medium'}
+8. Key Factors: Price ${currentPrice > sma20 ? 'above' : 'below'} SMA20, RSI at ${rsi.toFixed(1)}, momentum ${momentum > 0 ? 'positive' : 'negative'}.`;
+          } else if (response.status === 402) {
+            console.error(`Payment required for ${horizon}`);
+            continue;
+          } else {
+            console.error(`AI API error for ${horizon}: ${response.status}`);
+            continue;
+          }
+        } else {
+          const data = await response.json();
+          analysis = data.choices[0].message.content;
+        }
         
-        console.log(`ML prediction for ${horizon}:`, analysis);
+        console.log(`ML prediction for ${horizon}:`, usedFallback ? '(fallback)' : '(AI)', analysis.slice(0, 150));
 
         // Parse AI response
         const priceMatch = analysis.match(/Predicted Price[:\s]+\$?([0-9,.]+)/i);
