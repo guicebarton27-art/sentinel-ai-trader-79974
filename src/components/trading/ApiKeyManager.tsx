@@ -30,6 +30,7 @@ export const ApiKeyManager = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [migrating, setMigrating] = useState(false);
   const [newKey, setNewKey] = useState({ 
     exchange: 'kraken', 
     label: '', 
@@ -179,6 +180,32 @@ export const ApiKeyManager = () => {
     }
   };
 
+  const handleMigrateKeys = async () => {
+    try {
+      setMigrating(true);
+      
+      const { data, error } = await supabase.functions.invoke('manage-api-keys', {
+        body: { action: 'migrate' }
+      });
+
+      if (error) throw error;
+      
+      toast({
+        title: "Migration Complete",
+        description: `Successfully migrated ${data?.migrated || 0} key(s) to v2 encryption`,
+      });
+    } catch (error) {
+      console.error('Error migrating API keys:', error);
+      toast({
+        title: "Error", 
+        description: "Failed to migrate API keys",
+        variant: "destructive"
+      });
+    } finally {
+      setMigrating(false);
+    }
+  };
+
   const getStatusColor = (isActive: boolean) => {
     return isActive 
       ? 'bg-success text-success-foreground' 
@@ -208,6 +235,20 @@ export const ApiKeyManager = () => {
               </div>
             </div>
             <div className="flex gap-2">
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={handleMigrateKeys}
+                disabled={migrating || apiKeys.length === 0}
+                title="Upgrade encryption to latest version"
+              >
+                {migrating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Shield className="h-4 w-4" />
+                )}
+                <span className="ml-1 hidden sm:inline">Upgrade Encryption</span>
+              </Button>
               <Button 
                 variant="outline"
                 size="sm"
