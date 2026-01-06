@@ -3,6 +3,12 @@ project_id = "swpjpzsnqpamdchdlkpf"
 [functions.bot-engine]
 verify_jwt = false
 
+[functions.bot-controller]
+verify_jwt = false
+
+[functions.tick-bots]
+verify_jwt = false
+
 [functions.ml-price-prediction]
 verify_jwt = true
 
@@ -59,3 +65,6 @@ verify_jwt = true
 
 [functions.deploy-strategy]
 verify_jwt = true
+
+[functions.manage-api-keys]
+verify_jwt = false

@@ -225,6 +225,171 @@ export type Database = {
           },
         ]
       }
+      bot_events: {
+        Row: {
+          bot_capital: number | null
+          bot_id: string
+          bot_pnl: number | null
+          created_at: string
+          event_type: Database["public"]["Enums"]["bot_event_type"]
+          id: string
+          market_price: number | null
+          message: string
+          order_id: string | null
+          payload: Json | null
+          position_id: string | null
+          severity: string
+          user_id: string
+        }
+        Insert: {
+          bot_capital?: number | null
+          bot_id: string
+          bot_pnl?: number | null
+          created_at?: string
+          event_type: Database["public"]["Enums"]["bot_event_type"]
+          id?: string
+          market_price?: number | null
+          message: string
+          order_id?: string | null
+          payload?: Json | null
+          position_id?: string | null
+          severity?: string
+          user_id: string
+        }
+        Update: {
+          bot_capital?: number | null
+          bot_id?: string
+          bot_pnl?: number | null
+          created_at?: string
+          event_type?: Database["public"]["Enums"]["bot_event_type"]
+          id?: string
+          market_price?: number | null
+          message?: string
+          order_id?: string | null
+          payload?: Json | null
+          position_id?: string | null
+          severity?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_events_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bot_events_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bot_events_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bots: {
+        Row: {
+          api_key_id: string | null
+          created_at: string
+          current_capital: number
+          daily_pnl: number
+          error_count: number
+          id: string
+          last_error: string | null
+          last_heartbeat_at: string | null
+          last_tick_at: string | null
+          max_daily_loss: number
+          max_leverage: number
+          max_position_size: number
+          mode: Database["public"]["Enums"]["bot_mode"]
+          name: string
+          starting_capital: number
+          status: Database["public"]["Enums"]["bot_status"]
+          stop_loss_pct: number
+          strategy_config: Json
+          strategy_id: string
+          symbol: string
+          take_profit_pct: number
+          total_pnl: number
+          total_trades: number
+          updated_at: string
+          user_id: string
+          winning_trades: number
+        }
+        Insert: {
+          api_key_id?: string | null
+          created_at?: string
+          current_capital?: number
+          daily_pnl?: number
+          error_count?: number
+          id?: string
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          last_tick_at?: string | null
+          max_daily_loss?: number
+          max_leverage?: number
+          max_position_size?: number
+          mode?: Database["public"]["Enums"]["bot_mode"]
+          name?: string
+          starting_capital?: number
+          status?: Database["public"]["Enums"]["bot_status"]
+          stop_loss_pct?: number
+          strategy_config?: Json
+          strategy_id?: string
+          symbol?: string
+          take_profit_pct?: number
+          total_pnl?: number
+          total_trades?: number
+          updated_at?: string
+          user_id: string
+          winning_trades?: number
+        }
+        Update: {
+          api_key_id?: string | null
+          created_at?: string
+          current_capital?: number
+          daily_pnl?: number
+          error_count?: number
+          id?: string
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          last_tick_at?: string | null
+          max_daily_loss?: number
+          max_leverage?: number
+          max_position_size?: number
+          mode?: Database["public"]["Enums"]["bot_mode"]
+          name?: string
+          starting_capital?: number
+          status?: Database["public"]["Enums"]["bot_status"]
+          stop_loss_pct?: number
+          strategy_config?: Json
+          strategy_id?: string
+          symbol?: string
+          take_profit_pct?: number
+          total_pnl?: number
+          total_trades?: number
+          updated_at?: string
+          user_id?: string
+          winning_trades?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bots_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       deployed_strategies: {
         Row: {
           created_at: string
@@ -397,6 +562,204 @@ export type Database = {
             columns: ["model_id"]
             isOneToOne: false
             referencedRelation: "ml_models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orders: {
+        Row: {
+          average_fill_price: number | null
+          bot_id: string
+          canceled_at: string | null
+          client_order_id: string
+          created_at: string
+          exchange_order_id: string | null
+          fee: number | null
+          fee_currency: string | null
+          filled_at: string | null
+          filled_quantity: number
+          id: string
+          order_type: Database["public"]["Enums"]["order_type"]
+          price: number | null
+          quantity: number
+          reason: string | null
+          risk_checked: boolean
+          risk_flags: Json | null
+          risk_score: number | null
+          side: Database["public"]["Enums"]["order_side"]
+          signal_strength: number | null
+          slippage: number | null
+          status: Database["public"]["Enums"]["order_status"]
+          stop_price: number | null
+          strategy_id: string | null
+          submitted_at: string | null
+          symbol: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          average_fill_price?: number | null
+          bot_id: string
+          canceled_at?: string | null
+          client_order_id: string
+          created_at?: string
+          exchange_order_id?: string | null
+          fee?: number | null
+          fee_currency?: string | null
+          filled_at?: string | null
+          filled_quantity?: number
+          id?: string
+          order_type: Database["public"]["Enums"]["order_type"]
+          price?: number | null
+          quantity: number
+          reason?: string | null
+          risk_checked?: boolean
+          risk_flags?: Json | null
+          risk_score?: number | null
+          side: Database["public"]["Enums"]["order_side"]
+          signal_strength?: number | null
+          slippage?: number | null
+          status?: Database["public"]["Enums"]["order_status"]
+          stop_price?: number | null
+          strategy_id?: string | null
+          submitted_at?: string | null
+          symbol: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          average_fill_price?: number | null
+          bot_id?: string
+          canceled_at?: string | null
+          client_order_id?: string
+          created_at?: string
+          exchange_order_id?: string | null
+          fee?: number | null
+          fee_currency?: string | null
+          filled_at?: string | null
+          filled_quantity?: number
+          id?: string
+          order_type?: Database["public"]["Enums"]["order_type"]
+          price?: number | null
+          quantity?: number
+          reason?: string | null
+          risk_checked?: boolean
+          risk_flags?: Json | null
+          risk_score?: number | null
+          side?: Database["public"]["Enums"]["order_side"]
+          signal_strength?: number | null
+          slippage?: number | null
+          status?: Database["public"]["Enums"]["order_status"]
+          stop_price?: number | null
+          strategy_id?: string | null
+          submitted_at?: string | null
+          symbol?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      positions: {
+        Row: {
+          bot_id: string
+          closed_at: string | null
+          current_price: number | null
+          entry_order_id: string | null
+          entry_price: number
+          exit_order_id: string | null
+          exit_price: number | null
+          id: string
+          liquidation_price: number | null
+          max_drawdown: number | null
+          opened_at: string
+          quantity: number
+          realized_pnl: number | null
+          side: Database["public"]["Enums"]["order_side"]
+          status: Database["public"]["Enums"]["position_status"]
+          stop_loss_price: number | null
+          symbol: string
+          take_profit_price: number | null
+          total_fees: number | null
+          unrealized_pnl: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bot_id: string
+          closed_at?: string | null
+          current_price?: number | null
+          entry_order_id?: string | null
+          entry_price: number
+          exit_order_id?: string | null
+          exit_price?: number | null
+          id?: string
+          liquidation_price?: number | null
+          max_drawdown?: number | null
+          opened_at?: string
+          quantity: number
+          realized_pnl?: number | null
+          side: Database["public"]["Enums"]["order_side"]
+          status?: Database["public"]["Enums"]["position_status"]
+          stop_loss_price?: number | null
+          symbol: string
+          take_profit_price?: number | null
+          total_fees?: number | null
+          unrealized_pnl?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bot_id?: string
+          closed_at?: string | null
+          current_price?: number | null
+          entry_order_id?: string | null
+          entry_price?: number
+          exit_order_id?: string | null
+          exit_price?: number | null
+          id?: string
+          liquidation_price?: number | null
+          max_drawdown?: number | null
+          opened_at?: string
+          quantity?: number
+          realized_pnl?: number | null
+          side?: Database["public"]["Enums"]["order_side"]
+          status?: Database["public"]["Enums"]["position_status"]
+          stop_loss_price?: number | null
+          symbol?: string
+          take_profit_price?: number | null
+          total_fees?: number | null
+          unrealized_pnl?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "positions_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "positions_entry_order_id_fkey"
+            columns: ["entry_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "positions_exit_order_id_fkey"
+            columns: ["exit_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
             referencedColumns: ["id"]
           },
         ]
@@ -617,6 +980,36 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "trader" | "viewer"
+      bot_event_type:
+        | "start"
+        | "stop"
+        | "pause"
+        | "resume"
+        | "tick"
+        | "order"
+        | "fill"
+        | "error"
+        | "heartbeat"
+        | "config_change"
+        | "risk_alert"
+      bot_mode: "paper" | "live"
+      bot_status: "stopped" | "running" | "paused" | "error"
+      order_side: "buy" | "sell"
+      order_status:
+        | "pending"
+        | "submitted"
+        | "partial"
+        | "filled"
+        | "canceled"
+        | "rejected"
+        | "expired"
+      order_type:
+        | "market"
+        | "limit"
+        | "stop_loss"
+        | "take_profit"
+        | "stop_limit"
+      position_status: "open" | "closed" | "liquidated"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -745,6 +1138,33 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "trader", "viewer"],
+      bot_event_type: [
+        "start",
+        "stop",
+        "pause",
+        "resume",
+        "tick",
+        "order",
+        "fill",
+        "error",
+        "heartbeat",
+        "config_change",
+        "risk_alert",
+      ],
+      bot_mode: ["paper", "live"],
+      bot_status: ["stopped", "running", "paused", "error"],
+      order_side: ["buy", "sell"],
+      order_status: [
+        "pending",
+        "submitted",
+        "partial",
+        "filled",
+        "canceled",
+        "rejected",
+        "expired",
+      ],
+      order_type: ["market", "limit", "stop_loss", "take_profit", "stop_limit"],
+      position_status: ["open", "closed", "liquidated"],
     },
   },
 } as const
