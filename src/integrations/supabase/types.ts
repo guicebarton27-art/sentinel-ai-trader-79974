@@ -50,6 +50,45 @@ export type Database = {
         }
         Relationships: []
       }
+      audit_log: {
+        Row: {
+          action: string
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: string
+          ip_address: string | null
+          new_values: Json | null
+          old_values: Json | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          ip_address?: string | null
+          new_values?: Json | null
+          old_values?: Json | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          ip_address?: string | null
+          new_values?: Json | null
+          old_values?: Json | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       backtest_equity_curve: {
         Row: {
           backtest_run_id: string
@@ -291,6 +330,83 @@ export type Database = {
             columns: ["position_id"]
             isOneToOne: false
             referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bot_runs: {
+        Row: {
+          bot_id: string
+          ended_at: string | null
+          ending_capital: number | null
+          error_count: number | null
+          id: string
+          last_error: string | null
+          last_heartbeat_at: string | null
+          last_tick_at: string | null
+          mode: string
+          risk_config: Json | null
+          started_at: string
+          starting_capital: number
+          status: string
+          strategy_config: Json | null
+          summary: Json | null
+          tick_count: number | null
+          total_pnl: number | null
+          total_trades: number | null
+          user_id: string
+          winning_trades: number | null
+        }
+        Insert: {
+          bot_id: string
+          ended_at?: string | null
+          ending_capital?: number | null
+          error_count?: number | null
+          id?: string
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          last_tick_at?: string | null
+          mode?: string
+          risk_config?: Json | null
+          started_at?: string
+          starting_capital?: number
+          status?: string
+          strategy_config?: Json | null
+          summary?: Json | null
+          tick_count?: number | null
+          total_pnl?: number | null
+          total_trades?: number | null
+          user_id: string
+          winning_trades?: number | null
+        }
+        Update: {
+          bot_id?: string
+          ended_at?: string | null
+          ending_capital?: number | null
+          error_count?: number | null
+          id?: string
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          last_tick_at?: string | null
+          mode?: string
+          risk_config?: Json | null
+          started_at?: string
+          starting_capital?: number
+          status?: string
+          strategy_config?: Json | null
+          summary?: Json | null
+          tick_count?: number | null
+          total_pnl?: number | null
+          total_trades?: number | null
+          user_id?: string
+          winning_trades?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_runs_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
             referencedColumns: ["id"]
           },
         ]
@@ -566,6 +682,53 @@ export type Database = {
           },
         ]
       }
+      order_events: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          event_type: string
+          exchange_response: Json | null
+          id: string
+          metadata: Json | null
+          new_status: string | null
+          order_id: string
+          previous_status: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          event_type: string
+          exchange_response?: Json | null
+          id?: string
+          metadata?: Json | null
+          new_status?: string | null
+          order_id: string
+          previous_status?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          event_type?: string
+          exchange_response?: Json | null
+          id?: string
+          metadata?: Json | null
+          new_status?: string | null
+          order_id?: string
+          previous_status?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_events_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           average_fill_price: number | null
@@ -769,7 +932,9 @@ export type Database = {
           created_at: string
           email: string
           full_name: string | null
+          global_kill_switch: boolean
           id: string
+          kill_switch_activated_at: string | null
           updated_at: string
           user_id: string
         }
@@ -777,7 +942,9 @@ export type Database = {
           created_at?: string
           email: string
           full_name?: string | null
+          global_kill_switch?: boolean
           id?: string
+          kill_switch_activated_at?: string | null
           updated_at?: string
           user_id: string
         }
@@ -785,7 +952,9 @@ export type Database = {
           created_at?: string
           email?: string
           full_name?: string | null
+          global_kill_switch?: boolean
           id?: string
+          kill_switch_activated_at?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -976,6 +1145,20 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      is_user_killed: { Args: { p_user_id: string }; Returns: boolean }
+      log_audit_event: {
+        Args: {
+          p_action: string
+          p_entity_id?: string
+          p_entity_type: string
+          p_ip_address?: string
+          p_new_values?: Json
+          p_old_values?: Json
+          p_user_agent?: string
+          p_user_id: string
+        }
+        Returns: string
       }
     }
     Enums: {
