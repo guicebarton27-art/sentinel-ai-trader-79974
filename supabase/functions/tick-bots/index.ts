@@ -310,6 +310,92 @@ async function executePaperTrade(
   );
 }
 
+// Execute live trade via Kraken API
+async function executeLiveTrade(
+  supabase: SupabaseClient,
+  bot: Bot,
+  side: 'buy' | 'sell',
+  quantity: number,
+  price: number,
+  reason: string
+): Promise<void> {
+  if (!bot.api_key_id) {
+    await logEvent(supabase, bot.id, bot.user_id, 'error', 'Live trade failed: No API key configured', 'error');
+    return;
+  }
+
+  const clientOrderId = `live_${bot.id}_${Date.now()}`;
+  
+  // Create pending order record
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .insert([{
+      bot_id: bot.id,
+      user_id: bot.user_id,
+      client_order_id: clientOrderId,
+      symbol: bot.symbol,
+      side,
+      order_type: 'market',
+      status: 'pending',
+      quantity,
+      filled_quantity: 0,
+      strategy_id: bot.strategy_id,
+      reason,
+      risk_checked: true,
+    }] as unknown[])
+    .select()
+    .single();
+
+  if (orderError) {
+    console.error('Failed to create order:', orderError);
+    await logEvent(supabase, bot.id, bot.user_id, 'error', `Order creation failed: ${orderError.message}`, 'error');
+    return;
+  }
+
+  try {
+    // Call exchange-kraken edge function
+    const krakenSymbol = bot.symbol.replace('/', '');
+    const krakenResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/exchange-kraken`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+      },
+      body: JSON.stringify({
+        action: 'add_order',
+        api_key_id: bot.api_key_id,
+        pair: krakenSymbol,
+        type: side,
+        ordertype: 'market',
+        volume: quantity.toString(),
+      }),
+    });
+
+    const result = await krakenResponse.json();
+
+    if (!result.success) {
+      // Update order as rejected
+      await supabase.from('orders').update({ status: 'rejected', reason: result.error?.message } as unknown).eq('id', (order as { id: string }).id);
+      await logEvent(supabase, bot.id, bot.user_id, 'error', `Kraken order rejected: ${result.error?.message}`, 'error', { error: result.error });
+      return;
+    }
+
+    // Update order with exchange response
+    const txid = result.data?.txid?.[0] || null;
+    await supabase.from('orders').update({
+      status: 'submitted',
+      exchange_order_id: txid,
+      submitted_at: new Date().toISOString(),
+    } as unknown).eq('id', (order as { id: string }).id);
+
+    await logEvent(supabase, bot.id, bot.user_id, 'order', `Live ${side} order submitted: ${quantity} ${bot.symbol}`, 'info', { txid, quantity, price });
+  } catch (err) {
+    const error = err as Error;
+    await supabase.from('orders').update({ status: 'rejected', reason: error.message } as unknown).eq('id', (order as { id: string }).id);
+    await logEvent(supabase, bot.id, bot.user_id, 'error', `Live trade error: ${error.message}`, 'error');
+  }
+}
+
 // Process a single bot tick
 async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void> {
   try {
@@ -379,16 +465,8 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
         if (bot.mode === 'paper') {
           await executePaperTrade(supabase, bot, signal.action, quantity, marketData.price, signal.reason);
         } else {
-          // Live trading - would call Kraken API here
-          await logEvent(
-            supabase,
-            bot.id,
-            bot.user_id,
-            'order',
-            'Live trading order requested (not yet implemented)',
-            'warn',
-            { signal, quantity, price: marketData.price, riskCheck }
-          );
+          // Live trading via exchange-kraken adapter
+          await executeLiveTrade(supabase, bot, signal.action, quantity, marketData.price, signal.reason);
         }
       } else {
         await logEvent(

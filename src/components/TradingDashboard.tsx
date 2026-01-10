@@ -43,6 +43,7 @@ import { MLPricePrediction } from './trading/MLPricePrediction';
 import { MLRiskEngine } from './trading/MLRiskEngine';
 import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { AutoMLAgent } from './trading/AutoMLAgent';
+import { SystemStatusWidget } from './trading/SystemStatusWidget';
 import { useTradingBot } from '@/hooks/useTradingBot';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -390,16 +391,14 @@ export const TradingDashboard = () => {
           </TabsContent>
 
           <TabsContent value="settings" className="space-y-6 animate-in fade-in-50 duration-300">
-            <BacktestPanel />
+            <div className="grid lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                <BacktestPanel />
+              </div>
+              <SystemStatusWidget />
+            </div>
             <ApiKeyManager />
-            <BotControls 
-              botStatus={botStatus} 
-              onStatusChange={(status) => {
-                if (status === 'running') handleBotControl('start', 'paper');
-                else if (status === 'paused') handleBotControl('pause');
-                else handleBotControl('stop');
-              }} 
-            />
+            <BotControls />
           </TabsContent>
         </Tabs>
       </main>
