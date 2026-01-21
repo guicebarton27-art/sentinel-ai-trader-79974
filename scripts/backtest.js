@@ -67,6 +67,7 @@ const run = async () => {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Authorization: `Bearer ${serviceRoleKey}`,
       'x-service-role': serviceRoleKey,
     },
     body: JSON.stringify(requestBody),
