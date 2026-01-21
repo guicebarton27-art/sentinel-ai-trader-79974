@@ -96,14 +96,15 @@ export function useBotController() {
   // Fetch all user's bots
   const fetchBots = useCallback(async () => {
     try {
+      setLoading(true);
       setError(null);
       const { data, error: fetchError } = await supabase.functions.invoke('bot-controller/list');
       if (fetchError) throw fetchError;
       setBots(data?.bots || []);
       
       // Set first bot as active if none selected
-      if (data?.bots?.length > 0 && !activeBot) {
-        setActiveBot(data.bots[0]);
+      if (data?.bots?.length > 0) {
+        setActiveBot((prev) => prev ?? data.bots[0]);
       }
     } catch (err) {
       console.error('Error fetching bots:', err);
@@ -111,7 +112,7 @@ export function useBotController() {
     } finally {
       setLoading(false);
     }
-  }, [activeBot]);
+  }, []);
 
   // Fetch bot status with positions, orders, events
   const fetchBotStatus = useCallback(async (botId: string) => {
@@ -305,9 +306,42 @@ export function useBotController() {
     }
   }, [activeBot]);
 
-  // Initial fetch
   useEffect(() => {
-    fetchBots();
+    let isMounted = true;
+
+    const syncSessionAndFetch = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!isMounted) return;
+
+      if (session) {
+        fetchBots();
+      } else {
+        setLoading(false);
+      }
+    };
+
+    syncSessionAndFetch();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+      if (session) {
+        fetchBots();
+        return;
+      }
+
+      setBots([]);
+      setActiveBot(null);
+      setPositions([]);
+      setRecentOrders([]);
+      setRecentEvents([]);
+      setHealth(null);
+      setLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, [fetchBots]);
 
   // Subscribe to realtime updates for active bot
