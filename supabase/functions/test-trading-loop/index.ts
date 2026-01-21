@@ -268,11 +268,13 @@ serve(async (req) => {
       });
     } else {
       try {
+        const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
         const response = await fetch(`${requireEnv('SUPABASE_URL')}/functions/v1/ai-strategy-engine`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-service-role': requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
+            Authorization: `Bearer ${serviceRoleKey}`,
+            'x-service-role': serviceRoleKey,
           },
           body: JSON.stringify({
             marketState: {
