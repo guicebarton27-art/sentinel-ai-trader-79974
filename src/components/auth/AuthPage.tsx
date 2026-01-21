@@ -63,6 +63,18 @@ export const AuthPage = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  const formatAuthError = (error: unknown) => {
+    if (error instanceof Error && error.message.includes('Failed to fetch')) {
+      return 'Unable to reach the authentication service. Check your network connection and Supabase URL.';
+    }
+
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return 'An unexpected error occurred. Please try again.';
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log('Sign up attempt with email:', email);
@@ -112,11 +124,11 @@ export const AuthPage = () => {
         // Auto-redirect after successful signup (auto-confirm is enabled)
         setTimeout(() => navigate('/'), 500);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Caught error:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to create account',
+        description: formatAuthError(error),
         variant: 'destructive',
       });
     } finally {
@@ -166,11 +178,11 @@ export const AuthPage = () => {
         });
         navigate('/');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Caught error:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to sign in',
+        description: formatAuthError(error),
         variant: 'destructive',
       });
     } finally {
