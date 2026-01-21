@@ -35,6 +35,11 @@ interface Strategy {
     winRate: number;
     avgReturn: number;
   };
+  profitability: {
+    edgeScore: number;
+    feeDragBps: number;
+    turnover: number;
+  };
 }
 
 const strategies: Strategy[] = [
@@ -45,7 +50,8 @@ const strategies: Strategy[] = [
     status: 'active',
     allocation: 35,
     performance: { sharpe: 1.85, sortino: 2.12, drawdown: -8.5, alpha: 12.3 },
-    metrics: { trades: 156, winRate: 68.2, avgReturn: 2.4 }
+    metrics: { trades: 156, winRate: 68.2, avgReturn: 2.4 },
+    profitability: { edgeScore: 82, feeDragBps: 12, turnover: 1.8 },
   },
   {
     id: 'breakout-002',
@@ -54,7 +60,8 @@ const strategies: Strategy[] = [
     status: 'active',
     allocation: 25,
     performance: { sharpe: 1.62, sortino: 1.89, drawdown: -12.1, alpha: 8.7 },
-    metrics: { trades: 89, winRate: 72.1, avgReturn: 3.1 }
+    metrics: { trades: 89, winRate: 72.1, avgReturn: 3.1 },
+    profitability: { edgeScore: 74, feeDragBps: 16, turnover: 2.4 },
   },
   {
     id: 'mean-003',
@@ -63,7 +70,8 @@ const strategies: Strategy[] = [
     status: 'paused',
     allocation: 20,
     performance: { sharpe: 1.23, sortino: 1.45, drawdown: -15.3, alpha: 4.2 },
-    metrics: { trades: 234, winRate: 64.5, avgReturn: 1.8 }
+    metrics: { trades: 234, winRate: 64.5, avgReturn: 1.8 },
+    profitability: { edgeScore: 61, feeDragBps: 18, turnover: 3.1 },
   },
   {
     id: 'automl-004',
@@ -72,7 +80,8 @@ const strategies: Strategy[] = [
     status: 'training',
     allocation: 15,
     performance: { sharpe: 0.95, sortino: 1.12, drawdown: -22.1, alpha: 2.1 },
-    metrics: { trades: 45, winRate: 58.9, avgReturn: 1.2 }
+    metrics: { trades: 45, winRate: 58.9, avgReturn: 1.2 },
+    profitability: { edgeScore: 55, feeDragBps: 21, turnover: 1.2 },
   },
   {
     id: 'rl-005',
@@ -81,7 +90,8 @@ const strategies: Strategy[] = [
     status: 'active',
     allocation: 5,
     performance: { sharpe: 2.45, sortino: 2.89, drawdown: -5.2, alpha: 18.9 },
-    metrics: { trades: 67, winRate: 79.1, avgReturn: 4.2 }
+    metrics: { trades: 67, winRate: 79.1, avgReturn: 4.2 },
+    profitability: { edgeScore: 91, feeDragBps: 9, turnover: 1.4 },
   }
 ];
 
@@ -113,6 +123,8 @@ const getPerformanceIcon = (value: number) => {
 export const StrategyEngine = () => {
   const totalAllocation = strategies.reduce((sum, s) => sum + s.allocation, 0);
   const activeStrategies = strategies.filter(s => s.status === 'active').length;
+  const avgEdgeScore = strategies.reduce((sum, s) => sum + s.profitability.edgeScore, 0) / strategies.length;
+  const avgFeeDrag = strategies.reduce((sum, s) => sum + s.profitability.feeDragBps, 0) / strategies.length;
 
   return (
     <div className="space-y-6">
@@ -139,8 +151,22 @@ export const StrategyEngine = () => {
               <p className="text-sm text-muted-foreground">Avg Sharpe</p>
             </div>
             <div className="text-center space-y-1">
-              <p className="text-2xl font-bold text-execution">72.4%</p>
-              <p className="text-sm text-muted-foreground">Win Rate</p>
+              <p className="text-2xl font-bold text-execution">{avgEdgeScore.toFixed(0)}</p>
+              <p className="text-sm text-muted-foreground">Edge Score</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+              <span>Avg fee drag</span>
+              <span className="font-medium text-foreground">{avgFeeDrag.toFixed(1)} bps</span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+              <span>Execution mix</span>
+              <span className="font-medium text-foreground">68% maker</span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+              <span>Capacity utilization</span>
+              <span className="font-medium text-foreground">84%</span>
             </div>
           </div>
         </CardContent>
@@ -182,7 +208,7 @@ export const StrategyEngine = () => {
 
                 <Separator className="my-4" />
 
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                   {/* Allocation */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
@@ -241,6 +267,25 @@ export const StrategyEngine = () => {
                       <div className="flex justify-between">
                         <span>Avg Return:</span>
                         <span className="font-medium">{strategy.metrics.avgReturn}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Profitability Metrics */}
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Profitability</p>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between">
+                        <span>Edge Score:</span>
+                        <span className="font-medium">{strategy.profitability.edgeScore}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Fee Drag:</span>
+                        <span className="font-medium">{strategy.profitability.feeDragBps} bps</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Turnover:</span>
+                        <span className="font-medium">{strategy.profitability.turnover}x</span>
                       </div>
                     </div>
                   </div>

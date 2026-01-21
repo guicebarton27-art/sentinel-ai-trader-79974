@@ -45,6 +45,7 @@ import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { AutoMLAgent } from './trading/AutoMLAgent';
 import { SystemStatusWidget } from './trading/SystemStatusWidget';
 import { LiveTradesFeed } from './trading/LiveTradesFeed';
+import { ProfitabilityBlueprint } from './trading/ProfitabilityBlueprint';
 import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -424,6 +425,7 @@ export const TradingDashboard = () => {
           </TabsContent>
 
           <TabsContent value="strategies" className="space-y-6 animate-in fade-in-50 duration-300">
+            <ProfitabilityBlueprint />
             <AutoMLAgent />
             <StrategyEngine />
           </TabsContent>
