@@ -21,12 +21,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node scripts/dev-all.js",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
+    "worker": "node scripts/worker.js",
+    "backtest": "node scripts/backtest.js",
+    "test": "deno test --allow-env --allow-read supabase/functions/_shared",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "clean": "rm -rf dist node_modules",
     "audit:fix": "npm audit fix"

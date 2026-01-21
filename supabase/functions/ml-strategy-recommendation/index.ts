@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { fetchWithResilience, getAiModelConfig, requireAiConfig } from "../_shared/ai.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,7 +50,13 @@ serve(async (req) => {
   try {
     // Authenticate user and verify role
     const { user, role } = await authenticateUser(req);
-    console.log(`User ${user.id} (${role}) requesting ML strategy recommendation`);
+    const traceId = crypto.randomUUID();
+    logInfo({
+      component: 'ml-strategy-recommendation',
+      message: 'ML strategy recommendation request',
+      trace_id: traceId,
+      context: { user_id: user.id, role },
+    });
 
     const { 
       symbol = 'BTC/USD',
@@ -57,17 +65,19 @@ serve(async (req) => {
       current_positions = []
     } = await req.json();
     
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const aiConfig = requireAiConfig();
+    const modelConfig = getAiModelConfig();
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    if (!LOVABLE_API_KEY) {
-      throw new Error('AI service not configured');
-    }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    console.log(`Generating ML strategy recommendations for ${symbol}`);
+    logInfo({
+      component: 'ml-strategy-recommendation',
+      message: 'Generating ML strategy recommendations',
+      trace_id: traceId,
+      context: { symbol, model: modelConfig.model, version: modelConfig.version },
+    });
 
     // Fetch recent predictions
     const { data: predictions } = await supabase
@@ -173,14 +183,14 @@ Analyze and provide strategy recommendations:
 
 Be precise and actionable.`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetchWithResilience('ml-strategy-recommendation', aiConfig.gatewayUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${aiConfig.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: aiConfig.model,
         messages: [
           { role: 'system', content: 'You are an expert quantitative trading strategist specializing in algorithmic strategy design and ML-powered trading systems.' },
           { role: 'user', content: prompt }
@@ -193,7 +203,11 @@ Be precise and actionable.`;
 
     if (!response.ok) {
       if (response.status === 429) {
-        console.log('Rate limited, using rule-based fallback');
+        logWarn({
+          component: 'ml-strategy-recommendation',
+          message: 'Rate limited, using rule-based fallback',
+          trace_id: traceId,
+        });
         usedFallback = true;
         // Generate rule-based recommendation when rate limited
         const trend = currentPrice > sma20 && sma20 > sma50 ? 'bullish' : 
@@ -217,11 +231,20 @@ Be precise and actionable.`;
 13. Risk Factors: Market volatility at ${volatility.toFixed(1)}%, sentiment ${avgSentiment > 0 ? 'positive' : 'mixed'}
 14. Execution Notes: Use limit orders, scale into position`;
       } else if (response.status === 402) {
-        console.error('Payment required for AI service');
+        logError({
+          component: 'ml-strategy-recommendation',
+          message: 'Payment required for AI service',
+          trace_id: traceId,
+        });
         throw new Error('AI credits exhausted. Please add funds to continue.');
       } else {
         const errorText = await response.text();
-        console.error('AI API error:', response.status, errorText);
+        logWarn({
+          component: 'ml-strategy-recommendation',
+          message: 'AI API error',
+          trace_id: traceId,
+          context: { status: response.status, error: errorText },
+        });
         throw new Error('AI service temporarily unavailable');
       }
     } else {
@@ -229,7 +252,12 @@ Be precise and actionable.`;
       analysis = data.choices[0].message.content;
     }
     
-    console.log('Strategy recommendation:', usedFallback ? '(fallback)' : '(AI)', analysis.slice(0, 200));
+    logInfo({
+      component: 'ml-strategy-recommendation',
+      message: 'Strategy recommendation parsed',
+      trace_id: traceId,
+      context: { usedFallback },
+    });
 
     // Parse recommendations
     const strategyMatch = analysis.match(/Primary Strategy[:\s]+([\w_]+)/i);
@@ -273,6 +301,8 @@ Be precise and actionable.`;
         sentiment: avgSentiment,
       },
       full_analysis: analysis,
+      model_version: modelConfig.version,
+      trace_id: traceId,
       used_fallback: usedFallback,
     };
 
@@ -282,7 +312,11 @@ Be precise and actionable.`;
     );
     
   } catch (error: any) {
-    console.error('Error in strategy recommendation:', error);
+    logError({
+      component: 'ml-strategy-recommendation',
+      message: 'Error in strategy recommendation',
+      context: { error: error.message },
+    });
     
     const isAuthError = error.message?.includes('authorization') || 
                         error.message?.includes('token') || 

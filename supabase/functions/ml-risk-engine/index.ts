@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { fetchWithResilience, getAiModelConfig, requireAiConfig } from "../_shared/ai.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,7 +50,13 @@ serve(async (req) => {
   try {
     // Authenticate user and verify role
     const { user, role } = await authenticateUser(req);
-    console.log(`User ${user.id} (${role}) requesting ML risk analysis`);
+    const traceId = crypto.randomUUID();
+    logInfo({
+      component: 'ml-risk-engine',
+      message: 'ML risk analysis request',
+      trace_id: traceId,
+      context: { user_id: user.id, role },
+    });
 
     const { 
       symbol = 'BTC/USD',
@@ -57,17 +65,19 @@ serve(async (req) => {
       account_balance = 10000 
     } = await req.json();
     
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const aiConfig = requireAiConfig();
+    const modelConfig = getAiModelConfig();
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    if (!LOVABLE_API_KEY) {
-      throw new Error('AI service not configured');
-    }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    console.log(`Running ML risk analysis for ${symbol}`);
+    logInfo({
+      component: 'ml-risk-engine',
+      message: 'Running ML risk analysis',
+      trace_id: traceId,
+      context: { symbol, model: modelConfig.model, version: modelConfig.version },
+    });
 
     // Fetch recent market data
     const { data: candles } = await supabase
@@ -176,14 +186,14 @@ Provide comprehensive risk assessment:
 
 Use quantitative risk models and market regime analysis.`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetchWithResilience('ml-risk-engine', aiConfig.gatewayUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${aiConfig.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: aiConfig.model,
         messages: [
           { role: 'system', content: 'You are an expert quantitative risk analyst specializing in cryptocurrency risk management and portfolio protection.' },
           { role: 'user', content: prompt }
@@ -196,7 +206,11 @@ Use quantitative risk models and market regime analysis.`;
 
     if (!response.ok) {
       if (response.status === 429) {
-        console.log('Rate limited, using rule-based risk fallback');
+        logWarn({
+          component: 'ml-risk-engine',
+          message: 'Rate limited, using rule-based risk fallback',
+          trace_id: traceId,
+        });
         usedFallback = true;
         
         // Rule-based risk assessment fallback
@@ -219,11 +233,20 @@ Use quantitative risk models and market regime analysis.`;
 10. Risk Factors: Volatility at ${(volatility * 100).toFixed(1)}%, Max drawdown ${(maxDrawdown * 100).toFixed(1)}%, VaR ${(Math.abs(var95) * 100).toFixed(1)}%
 11. Recommendations: Monitor volatility closely, use stop-losses, consider position sizing based on current market conditions.`;
       } else if (response.status === 402) {
-        console.error('Payment required for AI service');
+        logError({
+          component: 'ml-risk-engine',
+          message: 'Payment required for AI service',
+          trace_id: traceId,
+        });
         throw new Error('AI credits exhausted. Please add funds to continue.');
       } else {
         const errorText = await response.text();
-        console.error('AI API error:', response.status, errorText);
+        logWarn({
+          component: 'ml-risk-engine',
+          message: 'AI API error',
+          trace_id: traceId,
+          context: { status: response.status, error: errorText },
+        });
         throw new Error('AI service temporarily unavailable');
       }
     } else {
@@ -231,7 +254,12 @@ Use quantitative risk models and market regime analysis.`;
       analysis = data.choices[0].message.content;
     }
     
-    console.log('ML risk analysis:', usedFallback ? '(fallback)' : '(AI)', analysis.slice(0, 150));
+    logInfo({
+      component: 'ml-risk-engine',
+      message: 'ML risk analysis parsed',
+      trace_id: traceId,
+      context: { usedFallback },
+    });
 
     // Parse risk assessment
     const riskLevelMatch = analysis.match(/Risk Level[:\s]+(low|medium|high|extreme)/i);
@@ -267,6 +295,8 @@ Use quantitative risk models and market regime analysis.`;
         downside_deviation: downsideDeviation,
         sentiment: avgSentiment,
       },
+      model_version: modelConfig.version,
+      trace_id: traceId,
     };
 
     return new Response(
@@ -275,7 +305,11 @@ Use quantitative risk models and market regime analysis.`;
     );
     
   } catch (error: any) {
-    console.error('Error in ML risk engine:', error);
+    logError({
+      component: 'ml-risk-engine',
+      message: 'Error in ML risk engine',
+      context: { error: error.message },
+    });
     
     const isAuthError = error.message?.includes('authorization') || 
                         error.message?.includes('token') || 

@@ -1,5 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseBoolean, parseNumber, requireEnv } from "../_shared/env.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
+import { buildSignalContract, generateBaselineSignal, evaluateRisk, MarketTick, OrderSide, SignalContract, TradeDecision, RiskInputs } from "../_shared/trading.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -50,11 +53,41 @@ interface MarketData {
   change_24h: number;
 }
 
+interface AiStrategyDecision {
+  action: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  reasoning: string;
+  positionSize: number;
+  stopLoss: number;
+  takeProfit: number;
+  riskScore: number;
+  expectedReturn: number;
+  timeHorizon: string;
+}
+
+interface AiStrategyResponse {
+  decision: AiStrategyDecision;
+  signal: SignalContract | null;
+  usedFallback: boolean;
+  traceId: string;
+}
+
+interface UserProfile {
+  global_kill_switch: boolean;
+}
+
+interface RiskState {
+  tradesLastHour: number;
+  cooldownActive: boolean;
+  lossStreakExceeded: boolean;
+  killSwitchActive: boolean;
+}
+
 // Get service client for server-side operations
 function getServiceClient(): SupabaseClient {
   return createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_SERVICE_ROLE_KEY')
   );
 }
 
@@ -87,74 +120,175 @@ async function fetchMarketData(symbol: string): Promise<MarketData> {
       change_24h: parseFloat(pairData.p[1]),
     };
   } catch (error) {
-    console.error('Error fetching market data:', error);
+    logWarn({
+      component: 'tick-bots',
+      message: 'Error fetching market data, falling back to simulated prices',
+      context: { error: (error as Error).message, symbol },
+    });
     // Return simulated data as fallback
-    const basePrice = 95000 + Math.random() * 1000;
+    const symbolSeed = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const basePrice = 95000 + (symbolSeed % 1000);
+    const change = ((symbolSeed % 100) - 50) / 10;
+    const volume = 50000 + (symbolSeed % 5000);
     return {
       symbol,
       price: basePrice,
       bid: basePrice - 10,
       ask: basePrice + 10,
-      volume_24h: 50000,
-      change_24h: (Math.random() - 0.5) * 5,
+      volume_24h: volume,
+      change_24h: change,
     };
   }
 }
 
 // Simple strategy calculations
-function calculateSignal(
-  strategyId: string,
-  marketData: MarketData,
-  _position: Position | null,
-  _config: Record<string, unknown>
-): { action: 'buy' | 'sell' | 'hold'; strength: number; reason: string } {
-  // Trend following strategy (simplified)
-  if (strategyId === 'trend_following') {
-    const change = marketData.change_24h;
-    if (change > 2) {
-      return { action: 'buy', strength: Math.min(change / 5, 1), reason: 'Strong upward trend' };
-    } else if (change < -2) {
-      return { action: 'sell', strength: Math.min(Math.abs(change) / 5, 1), reason: 'Strong downward trend' };
-    }
-  }
-
-  // Mean reversion strategy
+function getStrategyConfig(strategyId: string) {
   if (strategyId === 'mean_reversion') {
-    const change = marketData.change_24h;
-    if (change > 3) {
-      return { action: 'sell', strength: Math.min(change / 5, 1), reason: 'Overbought - expecting reversion' };
-    } else if (change < -3) {
-      return { action: 'buy', strength: Math.min(Math.abs(change) / 5, 1), reason: 'Oversold - expecting reversion' };
-    }
+    return { signalThreshold: 0.025, maxSignalStrength: 0.08 };
   }
 
-  return { action: 'hold', strength: 0, reason: 'No clear signal' };
+  if (strategyId === 'breakout') {
+    return { signalThreshold: 0.02, maxSignalStrength: 0.06 };
+  }
+
+  return { signalThreshold: 0.02, maxSignalStrength: 0.08 };
 }
 
-// Check risk limits before placing order
-function checkRiskLimits(
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function buildDecisionFromSignal(
   bot: Bot,
-  _position: Position | null,
-  orderSize: number,
-  _orderSide: 'buy' | 'sell',
-  currentPrice: number
-): { allowed: boolean; flags: string[] } {
-  const flags: string[] = [];
-
-  // Check daily loss limit
-  if (bot.daily_pnl < -bot.max_daily_loss) {
-    flags.push('DAILY_LOSS_LIMIT_EXCEEDED');
-    return { allowed: false, flags };
+  marketData: MarketData,
+  signal: ReturnType<typeof generateBaselineSignal>,
+  traceId: string,
+): TradeDecision | null {
+  if (!signal) {
+    return null;
   }
 
-  // Check position size limit
-  const orderValue = orderSize * currentPrice;
-  if (orderValue > bot.current_capital * bot.max_position_size) {
-    flags.push('POSITION_SIZE_EXCEEDED');
-    return { allowed: false, flags };
+  const positionValue = Number(bot.current_capital) * bot.max_position_size * signal.confidence;
+  const quantity = positionValue / marketData.price;
+  if (quantity <= 0) {
+    return null;
   }
 
-  return { allowed: flags.length === 0, flags };
+  return {
+    symbol: bot.symbol,
+    side: signal.side,
+    size: quantity,
+    entry: marketData.price,
+    stop: signal.side === 'buy'
+      ? marketData.price * (1 - bot.stop_loss_pct / 100)
+      : marketData.price * (1 + bot.stop_loss_pct / 100),
+    take_profit: signal.side === 'buy'
+      ? marketData.price * (1 + bot.take_profit_pct / 100)
+      : marketData.price * (1 - bot.take_profit_pct / 100),
+    confidence: signal.confidence,
+    rationale: signal.rationale,
+    trace_id: traceId,
+  };
+}
+
+async function fetchAiStrategyDecision(
+  bot: Bot,
+  marketData: MarketData,
+  traceId: string,
+): Promise<AiStrategyResponse | null> {
+  const aiEnabled = parseBoolean(Deno.env.get('AI_STRATEGY_ENABLED'), true);
+  if (!aiEnabled) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${requireEnv('SUPABASE_URL')}/functions/v1/ai-strategy-engine`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-service-role': requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
+      },
+      body: JSON.stringify({
+        marketState: {
+          symbol: bot.symbol,
+          currentPrice: marketData.price,
+          priceChange24h: marketData.change_24h,
+          volume24h: marketData.volume_24h,
+          sentiment: 0,
+          volatility: Math.abs(marketData.change_24h),
+          trendStrength: Math.abs(marketData.change_24h),
+        },
+        portfolio: {
+          currentCapital: bot.current_capital,
+          dailyPnl: bot.daily_pnl,
+          openPosition: null,
+        },
+        riskTolerance: (bot.strategy_config?.riskTolerance as string | undefined) ?? 'moderate',
+        traceId,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logWarn({
+        component: 'tick-bots',
+        message: 'AI strategy engine returned error',
+        context: { status: response.status, error: errorText, trace_id: traceId },
+      });
+      return null;
+    }
+
+    const data = await response.json();
+    return data?.decision ? (data as AiStrategyResponse) : null;
+  } catch (error) {
+    logWarn({
+      component: 'tick-bots',
+      message: 'AI strategy engine call failed',
+      context: { error: (error as Error).message, trace_id: traceId },
+    });
+    return null;
+  }
+}
+
+function buildAiTradeDecision(
+  bot: Bot,
+  marketData: MarketData,
+  aiDecision: AiStrategyDecision,
+  signal: SignalContract | null,
+  traceId: string,
+): TradeDecision | null {
+  if (aiDecision.action === 'HOLD') {
+    return null;
+  }
+
+  const confidence = signal?.confidence ?? clamp(aiDecision.confidence / 100, 0, 1);
+  const positionSizePct = clamp(aiDecision.positionSize, 0, 10);
+  const positionValue = Number(bot.current_capital) * (positionSizePct / 100);
+  const quantity = positionValue / marketData.price;
+
+  if (quantity <= 0 || confidence <= 0) {
+    return null;
+  }
+
+  const stopLossPct = clamp(aiDecision.stopLoss, 1, 20);
+  const takeProfitPct = clamp(aiDecision.takeProfit, 1, 50);
+  const side = aiDecision.action.toLowerCase() as OrderSide;
+
+  return {
+    symbol: bot.symbol,
+    side,
+    size: quantity,
+    entry: marketData.price,
+    stop: side === 'buy'
+      ? marketData.price * (1 - stopLossPct / 100)
+      : marketData.price * (1 + stopLossPct / 100),
+    take_profit: side === 'buy'
+      ? marketData.price * (1 + takeProfitPct / 100)
+      : marketData.price * (1 - takeProfitPct / 100),
+    confidence,
+    rationale: signal?.rationale ?? `AI: ${aiDecision.reasoning}`,
+    trace_id: traceId,
+  };
 }
 
 // Log event to database - uses type assertion for new tables
@@ -181,7 +315,11 @@ async function logEvent(
       market_price: metrics?.price ?? null,
     }] as unknown[]);
   } catch (err) {
-    console.error('Failed to log event:', err);
+    logError({
+      component: 'tick-bots',
+      message: 'Failed to log event',
+      context: { error: (err as Error).message },
+    });
   }
 }
 
@@ -189,13 +327,29 @@ async function logEvent(
 async function executePaperTrade(
   supabase: SupabaseClient,
   bot: Bot,
-  side: 'buy' | 'sell',
-  quantity: number,
-  price: number,
-  reason: string
+  decision: TradeDecision
 ): Promise<void> {
-  const clientOrderId = `paper_${bot.id}_${Date.now()}`;
-  const fee = quantity * price * 0.001; // 0.1% fee simulation
+  const clientOrderId = `paper_${bot.id}_${decision.trace_id}`;
+  const fee = decision.size * decision.entry * 0.001; // 0.1% fee simulation
+
+  const { data: existingOrder } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('client_order_id', clientOrderId)
+    .maybeSingle();
+
+  if (existingOrder) {
+    await logEvent(
+      supabase,
+      bot.id,
+      bot.user_id,
+      'order',
+      'Duplicate paper order prevented',
+      'warn',
+      { decision, client_order_id: clientOrderId }
+    );
+    return;
+  }
 
   // Create order record
   const orderData = {
@@ -203,19 +357,20 @@ async function executePaperTrade(
     user_id: bot.user_id,
     client_order_id: clientOrderId,
     symbol: bot.symbol,
-    side,
+    side: decision.side,
     order_type: 'market',
     status: 'filled',
-    quantity,
-    filled_quantity: quantity,
-    average_fill_price: price,
+    quantity: decision.size,
+    filled_quantity: decision.size,
+    average_fill_price: decision.entry,
     fee,
     fee_currency: 'USD',
     strategy_id: bot.strategy_id,
-    reason,
+    reason: decision.rationale,
     risk_checked: true,
     submitted_at: new Date().toISOString(),
     filled_at: new Date().toISOString(),
+    risk_flags: { trace_id: decision.trace_id },
   };
 
   const { data: orderResult, error: orderError } = await supabase
@@ -243,15 +398,15 @@ async function executePaperTrade(
 
   if (existingPosition) {
     // Close existing position
-    const exitPnl = side === 'sell'
-      ? (price - existingPosition.entry_price) * existingPosition.quantity
-      : (existingPosition.entry_price - price) * existingPosition.quantity;
+    const exitPnl = decision.side === 'sell'
+      ? (decision.entry - existingPosition.entry_price) * existingPosition.quantity
+      : (existingPosition.entry_price - decision.entry) * existingPosition.quantity;
 
     await supabase
       .from('positions')
       .update({
         status: 'closed',
-        exit_price: price,
+        exit_price: decision.entry,
         realized_pnl: exitPnl - fee,
         total_fees: (existingPosition.total_fees || 0) + fee,
         exit_order_id: order.id,
@@ -272,13 +427,13 @@ async function executePaperTrade(
       .eq('id', bot.id);
   } else {
     // Open new position
-    const stopLoss = side === 'buy'
-      ? price * (1 - bot.stop_loss_pct / 100)
-      : price * (1 + bot.stop_loss_pct / 100);
+    const stopLoss = decision.side === 'buy'
+      ? decision.entry * (1 - bot.stop_loss_pct / 100)
+      : decision.entry * (1 + bot.stop_loss_pct / 100);
     
-    const takeProfit = side === 'buy'
-      ? price * (1 + bot.take_profit_pct / 100)
-      : price * (1 - bot.take_profit_pct / 100);
+    const takeProfit = decision.side === 'buy'
+      ? decision.entry * (1 + bot.take_profit_pct / 100)
+      : decision.entry * (1 - bot.take_profit_pct / 100);
 
     await supabase
       .from('positions')
@@ -286,11 +441,11 @@ async function executePaperTrade(
         bot_id: bot.id,
         user_id: bot.user_id,
         symbol: bot.symbol,
-        side,
+        side: decision.side,
         status: 'open',
-        quantity,
-        entry_price: price,
-        current_price: price,
+        quantity: decision.size,
+        entry_price: decision.entry,
+        current_price: decision.entry,
         stop_loss_price: stopLoss,
         take_profit_price: takeProfit,
         total_fees: fee,
@@ -303,10 +458,10 @@ async function executePaperTrade(
     bot.id,
     bot.user_id,
     'fill',
-    `Paper ${side} ${quantity.toFixed(6)} ${bot.symbol} @ ${price.toFixed(2)}`,
+    `Paper ${decision.side} ${decision.size.toFixed(6)} ${bot.symbol} @ ${decision.entry.toFixed(2)}`,
     'info',
-    { side, quantity, price, fee, reason },
-    { capital: Number(bot.current_capital), price }
+    { decision, fee },
+    { capital: Number(bot.current_capital), price: decision.entry }
   );
 }
 
@@ -314,17 +469,33 @@ async function executePaperTrade(
 async function executeLiveTrade(
   supabase: SupabaseClient,
   bot: Bot,
-  side: 'buy' | 'sell',
-  quantity: number,
-  price: number,
-  reason: string
+  decision: TradeDecision
 ): Promise<void> {
   if (!bot.api_key_id) {
     await logEvent(supabase, bot.id, bot.user_id, 'error', 'Live trade failed: No API key configured', 'error');
     return;
   }
 
-  const clientOrderId = `live_${bot.id}_${Date.now()}`;
+  const clientOrderId = `live_${bot.id}_${decision.trace_id}`;
+
+  const { data: existingOrder } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('client_order_id', clientOrderId)
+    .maybeSingle();
+
+  if (existingOrder) {
+    await logEvent(
+      supabase,
+      bot.id,
+      bot.user_id,
+      'order',
+      'Duplicate live order prevented',
+      'warn',
+      { decision, client_order_id: clientOrderId }
+    );
+    return;
+  }
   
   // Create pending order record
   const { data: order, error: orderError } = await supabase
@@ -334,14 +505,15 @@ async function executeLiveTrade(
       user_id: bot.user_id,
       client_order_id: clientOrderId,
       symbol: bot.symbol,
-      side,
+      side: decision.side,
       order_type: 'market',
       status: 'pending',
-      quantity,
+      quantity: decision.size,
       filled_quantity: 0,
       strategy_id: bot.strategy_id,
-      reason,
+      reason: decision.rationale,
       risk_checked: true,
+      risk_flags: { trace_id: decision.trace_id },
     }] as unknown[])
     .select()
     .single();
@@ -355,19 +527,19 @@ async function executeLiveTrade(
   try {
     // Call exchange-kraken edge function
     const krakenSymbol = bot.symbol.replace('/', '');
-    const krakenResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/exchange-kraken`, {
+    const krakenResponse = await fetch(`${requireEnv('SUPABASE_URL')}/functions/v1/exchange-kraken`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+        'Authorization': `Bearer ${requireEnv('SUPABASE_SERVICE_ROLE_KEY')}`,
       },
       body: JSON.stringify({
         action: 'add_order',
         api_key_id: bot.api_key_id,
         pair: krakenSymbol,
-        type: side,
+        type: decision.side,
         ordertype: 'market',
-        volume: quantity.toString(),
+        volume: decision.size.toString(),
       }),
     });
 
@@ -388,7 +560,7 @@ async function executeLiveTrade(
       submitted_at: new Date().toISOString(),
     } as unknown).eq('id', (order as { id: string }).id);
 
-    await logEvent(supabase, bot.id, bot.user_id, 'order', `Live ${side} order submitted: ${quantity} ${bot.symbol}`, 'info', { txid, quantity, price });
+    await logEvent(supabase, bot.id, bot.user_id, 'order', `Live ${decision.side} order submitted: ${decision.size} ${bot.symbol}`, 'info', { txid, decision });
   } catch (err) {
     const error = err as Error;
     await supabase.from('orders').update({ status: 'rejected', reason: error.message } as unknown).eq('id', (order as { id: string }).id);
@@ -396,11 +568,89 @@ async function executeLiveTrade(
   }
 }
 
+async function getRiskState(
+  supabase: SupabaseClient,
+  bot: Bot,
+  tradeWindowMinutes: number,
+  cooldownMinutes: number,
+  lossStreakLimit: number
+): Promise<RiskState> {
+  const windowStart = new Date(Date.now() - tradeWindowMinutes * 60 * 1000).toISOString();
+
+  const { count: tradesLastHour } = await supabase
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('bot_id', bot.id)
+    .gte('created_at', windowStart);
+
+  const { data: recentClosedPositions } = await supabase
+    .from('positions')
+    .select('realized_pnl, closed_at')
+    .eq('bot_id', bot.id)
+    .eq('status', 'closed')
+    .order('closed_at', { ascending: false })
+    .limit(lossStreakLimit);
+
+  const lossStreakExceeded = (recentClosedPositions || []).length >= lossStreakLimit &&
+    (recentClosedPositions || []).every((position) => (position.realized_pnl ?? 0) < 0);
+
+  const lastLoss = (recentClosedPositions || []).find((position) => (position.realized_pnl ?? 0) < 0);
+  const cooldownActive = lastLoss?.closed_at
+    ? Date.now() - new Date(lastLoss.closed_at).getTime() < cooldownMinutes * 60 * 1000
+    : false;
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('global_kill_switch')
+    .eq('user_id', bot.user_id)
+    .maybeSingle();
+
+  return {
+    tradesLastHour: tradesLastHour ?? 0,
+    cooldownActive,
+    lossStreakExceeded,
+    killSwitchActive: (profile as UserProfile | null)?.global_kill_switch ?? false,
+  };
+}
+
+async function recordRiskRejection(
+  supabase: SupabaseClient,
+  bot: Bot,
+  decision: TradeDecision,
+  flags: string[]
+) {
+  await supabase
+    .from('orders')
+    .insert([{
+      bot_id: bot.id,
+      user_id: bot.user_id,
+      client_order_id: `rejected_${bot.id}_${decision.trace_id}`,
+      symbol: decision.symbol,
+      side: decision.side,
+      order_type: 'market',
+      status: 'rejected',
+      quantity: decision.size,
+      filled_quantity: 0,
+      average_fill_price: null,
+      fee: 0,
+      strategy_id: bot.strategy_id,
+      reason: decision.rationale,
+      risk_checked: true,
+      risk_flags: { flags, trace_id: decision.trace_id },
+      submitted_at: new Date().toISOString(),
+    }] as unknown[])
+    .select()
+    .single();
+}
+
 // Process a single bot tick
 async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void> {
   try {
+    const traceId = crypto.randomUUID();
+
     // Fetch current market data
     const marketData = await fetchMarketData(bot.symbol);
+    const marketTick: MarketTick = marketData;
 
     // Get open position if any
     const { data: positions } = await supabase
@@ -428,47 +678,139 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
       // Check stop loss / take profit
       if (position.side === 'buy') {
         if (position.stop_loss_price && marketData.price <= position.stop_loss_price) {
-          await executePaperTrade(supabase, bot, 'sell', position.quantity, marketData.price, 'Stop loss triggered');
-          await logEvent(supabase, bot.id, bot.user_id, 'risk_alert', 'Stop loss triggered', 'warn', { price: marketData.price, stop_loss: position.stop_loss_price });
+          await executePaperTrade(supabase, bot, {
+            symbol: bot.symbol,
+            side: 'sell',
+            size: position.quantity,
+            entry: marketData.price,
+            stop: position.stop_loss_price ?? marketData.price,
+            take_profit: position.take_profit_price ?? marketData.price,
+            confidence: 1,
+            rationale: 'Stop loss triggered',
+            trace_id: traceId,
+          });
+          await logEvent(supabase, bot.id, bot.user_id, 'risk_alert', 'Stop loss triggered', 'warn', { price: marketData.price, stop_loss: position.stop_loss_price, trace_id: traceId });
           return;
         }
         if (position.take_profit_price && marketData.price >= position.take_profit_price) {
-          await executePaperTrade(supabase, bot, 'sell', position.quantity, marketData.price, 'Take profit triggered');
+          await executePaperTrade(supabase, bot, {
+            symbol: bot.symbol,
+            side: 'sell',
+            size: position.quantity,
+            entry: marketData.price,
+            stop: position.stop_loss_price ?? marketData.price,
+            take_profit: position.take_profit_price ?? marketData.price,
+            confidence: 1,
+            rationale: 'Take profit triggered',
+            trace_id: traceId,
+          });
           return;
         }
       } else {
         if (position.stop_loss_price && marketData.price >= position.stop_loss_price) {
-          await executePaperTrade(supabase, bot, 'buy', position.quantity, marketData.price, 'Stop loss triggered');
-          await logEvent(supabase, bot.id, bot.user_id, 'risk_alert', 'Stop loss triggered', 'warn', { price: marketData.price, stop_loss: position.stop_loss_price });
+          await executePaperTrade(supabase, bot, {
+            symbol: bot.symbol,
+            side: 'buy',
+            size: position.quantity,
+            entry: marketData.price,
+            stop: position.stop_loss_price ?? marketData.price,
+            take_profit: position.take_profit_price ?? marketData.price,
+            confidence: 1,
+            rationale: 'Stop loss triggered',
+            trace_id: traceId,
+          });
+          await logEvent(supabase, bot.id, bot.user_id, 'risk_alert', 'Stop loss triggered', 'warn', { price: marketData.price, stop_loss: position.stop_loss_price, trace_id: traceId });
           return;
         }
         if (position.take_profit_price && marketData.price <= position.take_profit_price) {
-          await executePaperTrade(supabase, bot, 'buy', position.quantity, marketData.price, 'Take profit triggered');
+          await executePaperTrade(supabase, bot, {
+            symbol: bot.symbol,
+            side: 'buy',
+            size: position.quantity,
+            entry: marketData.price,
+            stop: position.stop_loss_price ?? marketData.price,
+            take_profit: position.take_profit_price ?? marketData.price,
+            confidence: 1,
+            rationale: 'Take profit triggered',
+            trace_id: traceId,
+          });
           return;
         }
       }
     }
 
     // Calculate trading signal
-    const signal = calculateSignal(bot.strategy_id, marketData, position, bot.strategy_config);
+    const strategyConfig = getStrategyConfig(bot.strategy_id);
+    const signal = generateBaselineSignal(marketTick, strategyConfig);
 
-    // Only act on strong signals and when we don't have a position
-    if (signal.action !== 'hold' && signal.strength > 0.3 && !position) {
-      // Calculate position size (fraction of capital)
-      const positionValue = Number(bot.current_capital) * bot.max_position_size * signal.strength;
-      const quantity = positionValue / marketData.price;
+    const timestamp = Date.now();
+    const aiResponse = await fetchAiStrategyDecision(bot, marketData, traceId);
+    const aiConfidenceThreshold = parseNumber(Deno.env.get('AI_CONFIDENCE_THRESHOLD'), 0.55);
+    const aiSignal = aiResponse?.signal ?? null;
+    const aiSignalQualified = aiSignal ? aiSignal.confidence >= aiConfidenceThreshold : false;
+    const aiTradeDecision = aiSignalQualified && aiResponse
+      ? buildAiTradeDecision(bot, marketData, aiResponse.decision, aiSignal, traceId)
+      : null;
+
+    const baselineSignal = signal
+      ? buildSignalContract(signal, {
+          modelVersion: 'baseline-v1',
+          traceId,
+          timestamp,
+        })
+      : null;
+    const fallbackDecision = baselineSignal && baselineSignal.confidence > 0.3
+      ? buildDecisionFromSignal(bot, marketData, signal, traceId)
+      : null;
+
+    const decision = aiTradeDecision ?? fallbackDecision;
+
+    if (decision && !position) {
+      const decisionSource = aiTradeDecision ? 'ai' : 'baseline';
+      const signalUsed = aiTradeDecision ? aiSignal : baselineSignal;
+      await logEvent(
+        supabase,
+        bot.id,
+        bot.user_id,
+        'tick',
+        `Signal generated (${decision.side}) via ${decisionSource}`,
+        'info',
+        { signal: signalUsed, aiDecision: aiResponse?.decision, decision, trace_id: traceId }
+      );
+
+      const cooldownMinutes = parseNumber(Deno.env.get('COOLDOWN_MINUTES_AFTER_LOSS'), 30);
+      const tradeWindowMinutes = 60;
+      const maxTradesPerHour = parseNumber(Deno.env.get('MAX_TRADES_PER_HOUR'), 5);
+      const maxLossStreak = Math.max(1, parseNumber(Deno.env.get('MAX_CONSECUTIVE_LOSSES'), 3));
+      const riskState = await getRiskState(supabase, bot, tradeWindowMinutes, cooldownMinutes, maxLossStreak);
+      const systemKillSwitch = parseBoolean(Deno.env.get('KILL_SWITCH_ENABLED'), true);
+      const riskInputs: RiskInputs = {
+        currentCapital: Number(bot.current_capital),
+        dailyPnl: Number(bot.daily_pnl),
+        maxDailyLoss: Number(bot.max_daily_loss),
+        maxPositionSize: Number(bot.max_position_size),
+        stopLossPct: Number(bot.stop_loss_pct),
+        tradesLastHour: riskState.tradesLastHour,
+        maxTradesPerHour,
+        cooldownActive: riskState.cooldownActive,
+        lossStreakExceeded: riskState.lossStreakExceeded,
+        killSwitchActive: systemKillSwitch || riskState.killSwitchActive,
+        liveTradingEnabled: parseBoolean(Deno.env.get('LIVE_TRADING_ENABLED'), false),
+        mode: bot.mode,
+      };
 
       // Check risk limits
-      const riskCheck = checkRiskLimits(bot, position, quantity, signal.action, marketData.price);
+      const riskCheck = evaluateRisk(decision, riskInputs);
 
       if (riskCheck.allowed) {
         if (bot.mode === 'paper') {
-          await executePaperTrade(supabase, bot, signal.action, quantity, marketData.price, signal.reason);
+          await executePaperTrade(supabase, bot, decision);
         } else {
           // Live trading via exchange-kraken adapter
-          await executeLiveTrade(supabase, bot, signal.action, quantity, marketData.price, signal.reason);
+          await executeLiveTrade(supabase, bot, decision);
         }
       } else {
+        await recordRiskRejection(supabase, bot, decision, riskCheck.flags);
         await logEvent(
           supabase,
           bot.id,
@@ -476,7 +818,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
           'risk_alert',
           `Order blocked by risk limits: ${riskCheck.flags.join(', ')}`,
           'warn',
-          { signal, riskCheck }
+          { decision, riskCheck }
         );
       }
     }
@@ -500,13 +842,17 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
         'heartbeat',
         `Tick processed: ${marketData.symbol} @ ${marketData.price.toFixed(2)}`,
         'info',
-        { marketData, signal, hasPosition: !!position },
+        { marketData, signal, hasPosition: !!position, trace_id: traceId },
         { capital: Number(bot.current_capital), pnl: Number(bot.total_pnl), price: marketData.price }
       );
     }
   } catch (err: unknown) {
     const error = err as Error;
-    console.error(`Error processing bot ${bot.id}:`, error);
+    logError({
+      component: 'tick-bots',
+      message: 'Error processing bot tick',
+      context: { bot_id: bot.id, error: error.message },
+    });
 
     // Log error and increment error count
     await supabase
@@ -538,7 +884,15 @@ serve(async (req) => {
   const supabase = getServiceClient();
 
   try {
-    console.log('Tick-bots starting...');
+    const serviceHeader = req.headers.get('x-service-role');
+    if (!serviceHeader || serviceHeader !== requireEnv('SUPABASE_SERVICE_ROLE_KEY')) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    logInfo({ component: 'tick-bots', message: 'Tick-bots starting' });
 
     // Get all running bots
     const { data: bots, error: botsError } = await supabase
@@ -555,7 +909,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Processing ${bots.length} running bot(s)`);
+    logInfo({ component: 'tick-bots', message: 'Processing running bots', context: { count: bots.length } });
 
     // Process each bot
     const results = await Promise.allSettled(
@@ -565,7 +919,11 @@ serve(async (req) => {
     const successful = results.filter(r => r.status === 'fulfilled').length;
     const failed = results.filter(r => r.status === 'rejected').length;
 
-    console.log(`Tick complete: ${successful} succeeded, ${failed} failed`);
+    logInfo({
+      component: 'tick-bots',
+      message: 'Tick complete',
+      context: { processed: bots.length, successful, failed },
+    });
 
     return new Response(JSON.stringify({
       message: 'Tick complete',
@@ -577,7 +935,7 @@ serve(async (req) => {
     });
   } catch (err: unknown) {
     const error = err as Error;
-    console.error('Tick-bots error:', error);
+    logError({ component: 'tick-bots', message: 'Tick-bots error', context: { error: error.message } });
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

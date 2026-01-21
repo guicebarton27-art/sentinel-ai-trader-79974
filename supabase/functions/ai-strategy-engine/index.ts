@@ -1,5 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { fetchWithResilience, getAiModelConfig, requireAiConfig } from "../_shared/ai.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
+import { buildSignalContract, SignalContract } from "../_shared/trading.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,7 +31,19 @@ interface StrategyDecision {
   timeHorizon: string;
 }
 
+interface StrategyResponse {
+  decision: StrategyDecision;
+  signal: SignalContract | null;
+  usedFallback: boolean;
+  traceId: string;
+}
+
 async function authenticateUser(req: Request, supabase: any) {
+  const serviceHeader = req.headers.get('x-service-role');
+  if (serviceHeader && serviceHeader === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
+    return { user: { id: 'service-role' }, role: 'service' };
+  }
+
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
     throw new Error('Missing authorization header');
@@ -66,7 +81,9 @@ serve(async (req) => {
 
     await authenticateUser(req, supabase);
 
-    const { marketState, portfolio, riskTolerance = 'moderate' } = await req.json();
+    const { marketState, portfolio, riskTolerance = 'moderate', traceId, forceFallback } = await req.json();
+    const trace_id = traceId ?? crypto.randomUUID();
+    const modelConfig = getAiModelConfig();
 
     if (!marketState || !marketState.symbol) {
       throw new Error('Market state with symbol is required');
@@ -152,136 +169,180 @@ RISK TOLERANCE: ${riskTolerance}
 
 Based on this analysis, provide your trading decision.`;
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
-    }
+    const buildFallbackDecision = (): StrategyDecision => {
+      const change = marketState.priceChange24h ?? 0;
+      const action = change >= 1 ? 'BUY' : change <= -1 ? 'SELL' : 'HOLD';
+      const confidence = Math.min(Math.abs(change) * 10, 60);
+      const positionSize = riskTolerance === 'aggressive' ? 5 : riskTolerance === 'conservative' ? 1 : 3;
+      const stopLoss = riskTolerance === 'aggressive' ? 6 : 4;
+      const takeProfit = riskTolerance === 'aggressive' ? 12 : 8;
 
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'make_trading_decision',
-              description: 'Generate a structured trading decision based on market analysis',
-              parameters: {
-                type: 'object',
-                properties: {
-                  action: {
-                    type: 'string',
-                    enum: ['BUY', 'SELL', 'HOLD'],
-                    description: 'The recommended trading action'
-                  },
-                  confidence: {
-                    type: 'number',
-                    description: 'Confidence level 0-100'
-                  },
-                  reasoning: {
-                    type: 'string',
-                    description: 'Detailed explanation of the decision'
-                  },
-                  positionSize: {
-                    type: 'number',
-                    description: 'Recommended position size as percentage of portfolio (0-10)'
-                  },
-                  stopLoss: {
-                    type: 'number',
-                    description: 'Stop loss percentage below entry (1-20)'
-                  },
-                  takeProfit: {
-                    type: 'number',
-                    description: 'Take profit percentage above entry (1-50)'
-                  },
-                  riskScore: {
-                    type: 'number',
-                    description: 'Risk score 1-10 where 10 is highest risk'
-                  },
-                  expectedReturn: {
-                    type: 'number',
-                    description: 'Expected return percentage'
-                  },
-                  timeHorizon: {
-                    type: 'string',
-                    enum: ['scalp', 'intraday', 'swing', 'position'],
-                    description: 'Recommended time horizon for the trade'
-                  }
-                },
-                required: ['action', 'confidence', 'reasoning', 'positionSize', 'stopLoss', 'takeProfit', 'riskScore', 'expectedReturn', 'timeHorizon'],
-                additionalProperties: false
-              }
-            }
-          }
-        ],
-        tool_choice: { type: 'function', function: { name: 'make_trading_decision' } }
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: 'Rate limit exceeded, please try again later' }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ error: 'AI credits exhausted, please add funds' }), {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      const errorText = await aiResponse.text();
-      console.error('AI API error:', aiResponse.status, errorText);
-      throw new Error('AI service temporarily unavailable');
-    }
-
-    const aiData = await aiResponse.json();
-    console.log('AI Response:', JSON.stringify(aiData));
+      return {
+        action,
+        confidence,
+        reasoning: `Fallback decision based on 24h change ${change.toFixed(2)}%`,
+        positionSize,
+        stopLoss,
+        takeProfit,
+        riskScore: 5,
+        expectedReturn: change * 0.5,
+        timeHorizon: 'swing',
+      };
+    };
 
     let decision: StrategyDecision;
+    let usedFallback = false;
 
-    // Parse tool call response
-    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-    if (toolCall?.function?.arguments) {
-      decision = JSON.parse(toolCall.function.arguments);
+    if (forceFallback && req.headers.get('x-service-role') === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
+      decision = buildFallbackDecision();
+      usedFallback = true;
+      logWarn({
+        component: 'ai-strategy-engine',
+        message: 'Forced fallback decision',
+        trace_id,
+      });
     } else {
-      // Fallback decision if AI doesn't use tool
-      decision = {
-        action: 'HOLD',
-        confidence: 50,
-        reasoning: 'Unable to determine clear market direction. Waiting for better signal.',
-        positionSize: 0,
-        stopLoss: 5,
-        takeProfit: 10,
-        riskScore: 5,
-        expectedReturn: 0,
-        timeHorizon: 'swing'
-      };
+      const aiConfig = requireAiConfig();
+      const aiResponse = await fetchWithResilience('ai-strategy-engine', aiConfig.gatewayUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${aiConfig.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: aiConfig.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          tools: [
+            {
+              type: 'function',
+              function: {
+                name: 'make_trading_decision',
+                description: 'Generate a structured trading decision based on market analysis',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    action: {
+                      type: 'string',
+                      enum: ['BUY', 'SELL', 'HOLD'],
+                      description: 'The recommended trading action'
+                    },
+                    confidence: {
+                      type: 'number',
+                      description: 'Confidence level 0-100'
+                    },
+                    reasoning: {
+                      type: 'string',
+                      description: 'Detailed explanation of the decision'
+                    },
+                    positionSize: {
+                      type: 'number',
+                      description: 'Recommended position size as percentage of portfolio (0-10)'
+                    },
+                    stopLoss: {
+                      type: 'number',
+                      description: 'Stop loss percentage below entry (1-20)'
+                    },
+                    takeProfit: {
+                      type: 'number',
+                      description: 'Take profit percentage above entry (1-50)'
+                    },
+                    riskScore: {
+                      type: 'number',
+                      description: 'Risk score 1-10 where 10 is highest risk'
+                    },
+                    expectedReturn: {
+                      type: 'number',
+                      description: 'Expected return percentage'
+                    },
+                    timeHorizon: {
+                      type: 'string',
+                      enum: ['scalp', 'intraday', 'swing', 'position'],
+                      description: 'Recommended time horizon for the trade'
+                    }
+                  },
+                  required: ['action', 'confidence', 'reasoning', 'positionSize', 'stopLoss', 'takeProfit', 'riskScore', 'expectedReturn', 'timeHorizon'],
+                  additionalProperties: false
+                }
+              }
+            }
+          ],
+          tool_choice: { type: 'function', function: { name: 'make_trading_decision' } }
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        logWarn({
+          component: 'ai-strategy-engine',
+          message: 'AI API error, using fallback decision',
+          trace_id,
+          context: { status: aiResponse.status, error: errorText },
+        });
+        decision = buildFallbackDecision();
+        usedFallback = true;
+      } else {
+        const aiData = await aiResponse.json();
+        logInfo({
+          component: 'ai-strategy-engine',
+          message: 'AI response received',
+          trace_id,
+          context: { model: modelConfig.model, version: modelConfig.version },
+        });
+
+        // Parse tool call response
+        const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+        if (toolCall?.function?.arguments) {
+          decision = JSON.parse(toolCall.function.arguments);
+        } else {
+          decision = buildFallbackDecision();
+          usedFallback = true;
+        }
+      }
     }
 
+    const signal = decision.action === 'HOLD'
+      ? null
+      : buildSignalContract(
+          {
+            symbol: marketState.symbol,
+            side: decision.action === 'BUY' ? 'buy' : 'sell',
+            confidence: Math.min(Math.max(decision.confidence / 100, 0), 1),
+            features_used: ['priceChange24h', 'volume24h', 'sentiment', 'volatility', 'trendStrength'],
+            rationale: decision.reasoning,
+          },
+          {
+            modelVersion: modelConfig.version,
+            traceId: trace_id,
+            timestamp: Date.now(),
+          },
+        );
+
     // Store the decision in ML predictions
-    await supabase.from('ml_predictions').insert({
+    const predictionPayload = {
       symbol: marketState.symbol,
       prediction_type: 'strategy_decision',
-      prediction_value: decision,
+      prediction_value: { decision, signal, model_version: modelConfig.version, used_fallback: usedFallback },
       confidence: decision.confidence / 100,
       timestamp: Date.now(),
-      horizon: decision.timeHorizon
-    });
+      horizon: decision.timeHorizon,
+      model_id: null,
+    };
+
+    await supabase.from('ml_predictions').insert(predictionPayload);
+
+    const responsePayload: StrategyResponse = {
+      decision,
+      signal,
+      usedFallback,
+      traceId: trace_id,
+    };
 
     return new Response(JSON.stringify({
       success: true,
-      decision,
+      ...responsePayload,
       context: {
         avgSentiment,
         avgBacktestReturn,
@@ -294,13 +355,17 @@ Based on this analysis, provide your trading decision.`;
     });
 
   } catch (error) {
-    console.error('AI Strategy Engine error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const isAuthError = errorMessage.includes('authorization') || 
-                        errorMessage.includes('token') || 
+    logError({
+      component: 'ai-strategy-engine',
+      message: 'AI Strategy Engine error',
+      context: { error: errorMessage },
+    });
+    const isAuthError = errorMessage.includes('authorization') ||
+                        errorMessage.includes('token') ||
                         errorMessage.includes('permissions');
-    
-    return new Response(JSON.stringify({ 
+
+    return new Response(JSON.stringify({
       error: isAuthError ? 'Authentication failed' : (errorMessage || 'Strategy analysis failed')
     }), {
       status: isAuthError ? 401 : 500,

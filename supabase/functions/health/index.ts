@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getAiModelConfig } from "../_shared/ai.ts";
+import { parseBoolean } from "../_shared/env.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +17,7 @@ interface HealthStatus {
     scheduler: ComponentStatus;
     bots: BotsStatus;
     errors: ErrorsStatus;
+    ai_gateway: ComponentStatus;
   };
   uptime_info: {
     last_tick_at: string | null;
@@ -65,6 +68,25 @@ function getServiceClient(): SupabaseClient {
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
   );
+}
+
+function checkAiGateway(): ComponentStatus {
+  const aiEnabled = parseBoolean(Deno.env.get("AI_STRATEGY_ENABLED"), true);
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  const modelConfig = getAiModelConfig();
+
+  if (!aiEnabled) {
+    return { status: "warning", message: "AI strategy disabled via AI_STRATEGY_ENABLED" };
+  }
+
+  if (!apiKey) {
+    return { status: "warning", message: "LOVABLE_API_KEY not configured" };
+  }
+
+  return {
+    status: "ok",
+    message: `AI model ${modelConfig.model} (${modelConfig.version}) configured`,
+  };
 }
 
 // Check database connectivity
@@ -236,6 +258,7 @@ function calculateOverallStatus(components: HealthStatus["components"]): "health
     components.scheduler.status,
     components.bots.status,
     components.errors.status,
+    components.ai_gateway.status,
   ];
 
   if (statuses.includes("error")) {
@@ -266,12 +289,13 @@ serve(async (req) => {
     ]);
 
     const scheduler = checkScheduler(lastTickAt);
+    const ai_gateway = checkAiGateway();
 
     const secondsSinceLastTick = lastTickAt
       ? Math.floor((Date.now() - new Date(lastTickAt).getTime()) / 1000)
       : null;
 
-    const components = { database, scheduler, bots, errors };
+    const components = { database, scheduler, bots, errors, ai_gateway };
 
     const health: HealthStatus = {
       status: calculateOverallStatus(components),
@@ -303,6 +327,7 @@ serve(async (req) => {
         scheduler: { status: "error", message: "Unable to check" },
         bots: { status: "error", total: 0, running: 0, paused: 0, stopped: 0, error: 0 },
         errors: { status: "error", count_last_hour: 0, count_last_24h: 0, recent_errors: [] },
+        ai_gateway: { status: "error", message: "Unable to check" },
       },
       uptime_info: {
         last_tick_at: null,

@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { fetchWithResilience, getAiModelConfig, requireAiConfig } from "../_shared/ai.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,7 +50,13 @@ serve(async (req) => {
   try {
     // Authenticate user and verify role
     const { user, role } = await authenticateUser(req);
-    console.log(`User ${user.id} (${role}) requesting ML execution routing`);
+    const traceId = crypto.randomUUID();
+    logInfo({
+      component: 'ml-execution-router',
+      message: 'Execution routing request',
+      trace_id: traceId,
+      context: { user_id: user.id, role },
+    });
 
     const { 
       symbol = 'BTC/USD',
@@ -58,17 +66,19 @@ serve(async (req) => {
       urgency = 'normal'
     } = await req.json();
     
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const aiConfig = requireAiConfig();
+    const modelConfig = getAiModelConfig();
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    if (!LOVABLE_API_KEY) {
-      throw new Error('AI service not configured');
-    }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    console.log(`Routing ${side} order for ${size} ${symbol}`);
+    logInfo({
+      component: 'ml-execution-router',
+      message: 'Routing order',
+      trace_id: traceId,
+      context: { symbol, side, size, model: modelConfig.model, version: modelConfig.version },
+    });
 
     // Fetch recent market data
     const { data: candles } = await supabase
@@ -135,14 +145,14 @@ Provide optimal execution strategy:
 
 Consider liquidity, spread, volatility, and market impact.`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetchWithResilience('ml-execution-router', aiConfig.gatewayUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${aiConfig.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: aiConfig.model,
         messages: [
           { role: 'system', content: 'You are an expert execution trader specializing in smart order routing, algorithmic execution, and market microstructure optimization.' },
           { role: 'user', content: prompt }
@@ -151,13 +161,23 @@ Consider liquidity, spread, volatility, and market impact.`;
     });
 
     if (!response.ok) {
+      logWarn({
+        component: 'ml-execution-router',
+        message: 'AI service error',
+        trace_id: traceId,
+        context: { status: response.status },
+      });
       throw new Error('AI service error');
     }
 
     const data = await response.json();
     const analysis = data.choices[0].message.content;
     
-    console.log('Execution routing:', analysis);
+    logInfo({
+      component: 'ml-execution-router',
+      message: 'Execution routing parsed',
+      trace_id: traceId,
+    });
 
     // Parse routing decision
     const venueMatch = analysis.match(/Recommended Venue[:\s]+([\w]+)/i);
@@ -199,6 +219,8 @@ Consider liquidity, spread, volatility, and market impact.`;
         spread,
       },
       full_analysis: analysis,
+      model_version: modelConfig.version,
+      trace_id: traceId,
     };
 
     return new Response(
@@ -207,7 +229,11 @@ Consider liquidity, spread, volatility, and market impact.`;
     );
     
   } catch (error: any) {
-    console.error('Error in execution router:', error);
+    logError({
+      component: 'ml-execution-router',
+      message: 'Error in execution router',
+      context: { error: error.message },
+    });
     
     const isAuthError = error.message?.includes('authorization') || 
                         error.message?.includes('token') || 

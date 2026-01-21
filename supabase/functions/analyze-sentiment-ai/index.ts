@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { deterministicFloat, fetchWithResilience, getAiModelConfig, requireAiConfig } from "../_shared/ai.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,6 +15,8 @@ interface SentimentData {
   trend: "bullish" | "bearish" | "neutral";
   timestamp: number;
   reasoning?: string;
+  model_version?: string;
+  trace_id?: string;
 }
 
 // Authenticate user and check role
@@ -57,16 +61,25 @@ serve(async (req) => {
   try {
     // Authenticate user and verify role
     const { user, role } = await authenticateUser(req);
-    console.log(`User ${user.id} (${role}) analyzing sentiment with AI`);
+    const traceId = crypto.randomUUID();
+    logInfo({
+      component: 'analyze-sentiment-ai',
+      message: 'Analyze sentiment request',
+      trace_id: traceId,
+      context: { user_id: user.id, role },
+    });
 
     const { symbol = "BTC/USD" } = await req.json();
     
-    console.log('Analyzing sentiment for:', symbol);
+    logInfo({
+      component: 'analyze-sentiment-ai',
+      message: 'Analyzing sentiment',
+      trace_id: traceId,
+      context: { symbol },
+    });
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("AI service not configured");
-    }
+    const aiConfig = requireAiConfig();
+    const modelConfig = getAiModelConfig();
 
     const sources = ["Twitter", "Reddit", "News"];
     const sentiments: SentimentData[] = [];
@@ -90,14 +103,14 @@ Provide your analysis in the following format:
 Be realistic about current crypto market conditions.`;
 
       try {
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const response = await fetchWithResilience('analyze-sentiment-ai', aiConfig.gatewayUrl, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+            "Authorization": `Bearer ${aiConfig.apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
+            model: aiConfig.model,
             messages: [
               { role: "system", content: "You are a market sentiment analyst expert at gauging social media and news sentiment for cryptocurrency markets." },
               { role: "user", content: prompt }
@@ -107,21 +120,36 @@ Be realistic about current crypto market conditions.`;
 
         if (!response.ok) {
           if (response.status === 429) {
-            console.error(`Rate limit hit for ${source}, skipping...`);
+            logWarn({
+              component: 'analyze-sentiment-ai',
+              message: 'Rate limit hit for source',
+              trace_id: traceId,
+              context: { source },
+            });
             continue; // Skip this source instead of throwing
           }
           if (response.status === 402) {
             throw new Error("AI service payment required");
           }
           const errorText = await response.text();
-          console.error("AI gateway error:", response.status, errorText);
+          logWarn({
+            component: 'analyze-sentiment-ai',
+            message: 'AI gateway error',
+            trace_id: traceId,
+            context: { status: response.status, error: errorText },
+          });
           continue; // Skip on other errors
         }
 
         const aiResponse = await response.json();
         const analysis = aiResponse.choices[0].message.content;
         
-        console.log(`AI sentiment analysis for ${source}:`, analysis);
+        logInfo({
+          component: 'analyze-sentiment-ai',
+          message: 'AI sentiment analysis parsed',
+          trace_id: traceId,
+          context: { source },
+        });
 
         // Parse the AI response
         const scoreMatch = analysis.match(/sentiment score[:\s]+(-?0?\.\d+|-?1\.0)/i);
@@ -134,18 +162,26 @@ Be realistic about current crypto market conditions.`;
         
         // Convert volume level to number
         const volumeMap = { low: 500, medium: 1000, high: 2000 };
-        const volume = volumeMap[volumeLevel as keyof typeof volumeMap] + Math.floor(Math.random() * 500);
+        const volumeJitter = Math.floor(deterministicFloat(`${symbol}:${source}:volume`) * 500);
+        const volume = volumeMap[volumeLevel as keyof typeof volumeMap] + volumeJitter;
 
         sentiments.push({
           source,
           score,
           volume,
           trend,
-          timestamp: Date.now() - (i * 300000), // Stagger timestamps
-          reasoning: analysis
+          timestamp: Date.now() - (i * 300000),
+          reasoning: analysis,
+          model_version: modelConfig.version,
+          trace_id: traceId,
         });
       } catch (apiError: any) {
-        console.error(`Error fetching sentiment for ${source}:`, apiError);
+        logWarn({
+          component: 'analyze-sentiment-ai',
+          message: 'Error fetching sentiment for source',
+          trace_id: traceId,
+          context: { source, error: apiError.message },
+        });
         // Continue with next source
       }
     }
@@ -169,7 +205,11 @@ Be realistic about current crypto market conditions.`;
     );
 
   } catch (error: any) {
-    console.error('Error in analyze-sentiment-ai function:', error);
+    logError({
+      component: 'analyze-sentiment-ai',
+      message: 'Error in analyze-sentiment-ai function',
+      context: { error: error.message },
+    });
     
     const isAuthError = error.message?.includes('authorization') || 
                         error.message?.includes('token') || 

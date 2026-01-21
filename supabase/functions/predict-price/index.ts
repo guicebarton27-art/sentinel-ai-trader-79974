@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import { fetchWithResilience, getAiModelConfig, requireAiConfig } from "../_shared/ai.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -43,16 +45,25 @@ serve(async (req) => {
   try {
     // Authenticate user
     const { user, role } = await authenticateUser(req);
-    console.log(`User ${user.id} (${role}) requesting price predictions`);
+    const traceId = crypto.randomUUID();
+    logInfo({
+      component: 'predict-price',
+      message: 'Price prediction request',
+      trace_id: traceId,
+      context: { user_id: user.id, role },
+    });
 
     const { symbol = "BTC/USD", timeframes = ["1H", "4H", "24H"] } = await req.json();
     
-    console.log('Generating predictions for:', symbol, 'timeframes:', timeframes);
+    logInfo({
+      component: 'predict-price',
+      message: 'Generating predictions',
+      trace_id: traceId,
+      context: { symbol, timeframes },
+    });
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("AI service not configured");
-    }
+    const aiConfig = requireAiConfig();
+    const modelConfig = getAiModelConfig();
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -116,7 +127,11 @@ serve(async (req) => {
       recentPrices: prices.slice(-10)
     };
 
-    console.log('Market data calculated:', marketData);
+    logInfo({
+      component: 'predict-price',
+      message: 'Market data calculated',
+      trace_id: traceId,
+    });
 
     // Call Lovable AI for predictions with delay between calls to avoid rate limiting
     const predictions = [];
@@ -154,14 +169,14 @@ Be realistic and consider:
 - Recent momentum and price action`;
 
       try {
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const response = await fetchWithResilience('predict-price', aiConfig.gatewayUrl, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+            "Authorization": `Bearer ${aiConfig.apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
+            model: aiConfig.model,
             messages: [
               { role: "system", content: "You are an expert cryptocurrency analyst providing realistic price predictions based on technical analysis." },
               { role: "user", content: prompt }
@@ -171,21 +186,36 @@ Be realistic and consider:
 
         if (!response.ok) {
           if (response.status === 429) {
-            console.error(`Rate limit hit for ${timeframe}, skipping...`);
+            logWarn({
+              component: 'predict-price',
+              message: 'Rate limit hit for timeframe',
+              trace_id: traceId,
+              context: { timeframe },
+            });
             continue; // Skip this timeframe instead of throwing
           }
           if (response.status === 402) {
             throw new Error("AI service payment required");
           }
           const errorText = await response.text();
-          console.error("AI gateway error:", response.status, errorText);
+          logWarn({
+            component: 'predict-price',
+            message: 'AI gateway error',
+            trace_id: traceId,
+            context: { status: response.status, error: errorText },
+          });
           continue; // Skip on other errors
         }
 
         const aiResponse = await response.json();
         const analysis = aiResponse.choices[0].message.content;
         
-        console.log(`AI analysis for ${timeframe}:`, analysis);
+        logInfo({
+          component: 'predict-price',
+          message: 'AI analysis parsed',
+          trace_id: traceId,
+          context: { timeframe },
+        });
 
         // Parse the AI response
         const priceMatch = analysis.match(/predicted price[:\s]+\$?([\d,]+\.?\d*)/i);
@@ -205,10 +235,17 @@ Be realistic and consider:
           confidence,
           direction,
           change,
-          reasoning: analysis
+          reasoning: analysis,
+          model_version: modelConfig.version,
+          trace_id: traceId,
         });
       } catch (apiError: any) {
-        console.error(`Error fetching prediction for ${timeframe}:`, apiError);
+        logWarn({
+          component: 'predict-price',
+          message: 'Error fetching prediction for timeframe',
+          trace_id: traceId,
+          context: { timeframe, error: apiError.message },
+        });
         // Continue with next timeframe
       }
     }
@@ -228,7 +265,11 @@ Be realistic and consider:
     );
 
   } catch (error: any) {
-    console.error('Error in predict-price function:', error);
+    logError({
+      component: 'predict-price',
+      message: 'Error in predict-price function',
+      context: { error: error.message },
+    });
     
     const isAuthError = error.message?.includes('authorization') || 
                         error.message?.includes('token') || 

@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { deterministicFloat, fetchWithResilience, getAiModelConfig, requireAiConfig } from "../_shared/ai.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,21 +50,29 @@ serve(async (req) => {
   try {
     // Authenticate user and verify role
     const { user, role } = await authenticateUser(req);
-    console.log(`User ${user.id} (${role}) requesting ML sentiment analysis`);
+    const traceId = crypto.randomUUID();
+    logInfo({
+      component: 'ml-sentiment-analysis',
+      message: 'ML sentiment analysis request',
+      trace_id: traceId,
+      context: { user_id: user.id, role },
+    });
 
     const { symbol = 'BTC/USD', sources = ['twitter', 'reddit', 'news'] } = await req.json();
     
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const aiConfig = requireAiConfig();
+    const modelConfig = getAiModelConfig();
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    if (!LOVABLE_API_KEY) {
-      throw new Error('AI service not configured');
-    }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    console.log(`Analyzing sentiment for ${symbol} across ${sources.length} sources`);
+    logInfo({
+      component: 'ml-sentiment-analysis',
+      message: 'Analyzing sentiment',
+      trace_id: traceId,
+      context: { symbol, sources, model: modelConfig.model, version: modelConfig.version },
+    });
     
     const sentimentResults = [];
     const timestamp = Date.now();
@@ -83,14 +93,14 @@ Provide your analysis in this exact format:
 
 Be realistic and data-driven in your assessment.`;
 
-        const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        const response = await fetchWithResilience('ml-sentiment-analysis', aiConfig.gatewayUrl, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+            'Authorization': `Bearer ${aiConfig.apiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
+            model: aiConfig.model,
             messages: [
               { role: 'system', content: 'You are a crypto market sentiment analyst providing accurate, data-driven sentiment analysis.' },
               { role: 'user', content: prompt }
@@ -103,15 +113,22 @@ Be realistic and data-driven in your assessment.`;
 
         if (!response.ok) {
           if (response.status === 429) {
-            console.log(`Rate limited for ${source}, using rule-based fallback`);
+            logWarn({
+              component: 'ml-sentiment-analysis',
+              message: 'Rate limited, using rule-based fallback',
+              trace_id: traceId,
+              context: { source },
+            });
             usedFallback = true;
             
             // Rule-based sentiment fallback with source-specific characteristics
-            const baseScore = Math.random() * 0.6 - 0.3; // -0.3 to 0.3
+            const baseScore = deterministicFloat(`${symbol}:${source}:base`) * 0.6 - 0.3;
             const sourceModifier = source === 'twitter' ? 0.1 : source === 'reddit' ? -0.05 : 0;
             const sentimentScore = Math.max(-1, Math.min(1, baseScore + sourceModifier));
             const trend = sentimentScore > 0.1 ? 'bullish' : sentimentScore < -0.1 ? 'bearish' : 'neutral';
-            const volume = ['low', 'medium', 'high'][Math.floor(Math.random() * 3)];
+            const volumeOptions = ['low', 'medium', 'high'];
+            const volumeIndex = Math.floor(deterministicFloat(`${symbol}:${source}:volume`) * volumeOptions.length);
+            const volume = volumeOptions[Math.min(volumeIndex, volumeOptions.length - 1)];
             
             analysis = `1. Sentiment Score: ${sentimentScore.toFixed(2)}
 2. Trend: ${trend}
@@ -119,10 +136,20 @@ Be realistic and data-driven in your assessment.`;
 4. Confidence: 0.65
 5. Brief Reasoning: Market sentiment analysis based on recent ${source} activity patterns and historical trends.`;
           } else if (response.status === 402) {
-            console.error(`Payment required for ${source}, skipping...`);
+            logError({
+              component: 'ml-sentiment-analysis',
+              message: 'Payment required for AI service',
+              trace_id: traceId,
+              context: { source },
+            });
             continue;
           } else {
-            console.error(`AI API error for ${source}: ${response.status}`);
+            logWarn({
+              component: 'ml-sentiment-analysis',
+              message: 'AI API error for source',
+              trace_id: traceId,
+              context: { source, status: response.status },
+            });
             continue;
           }
         } else {
@@ -130,7 +157,12 @@ Be realistic and data-driven in your assessment.`;
           analysis = data.choices[0].message.content;
         }
         
-        console.log(`AI sentiment analysis for ${source}:`, usedFallback ? '(fallback)' : '(AI)', analysis.slice(0, 100));
+        logInfo({
+          component: 'ml-sentiment-analysis',
+          message: 'Sentiment parsed',
+          trace_id: traceId,
+          context: { source, usedFallback },
+        });
 
         // Parse the AI response
         const scoreMatch = analysis.match(/Sentiment Score[:\s]+(-?[0-9.]+)/i);
@@ -150,12 +182,12 @@ Be realistic and data-driven in your assessment.`;
         const sentimentData = {
           symbol,
           source,
-          model_used: 'gemini-2.5-flash',
+          model_used: `${modelConfig.model}:${modelConfig.version}`,
           sentiment_score: sentimentScore,
           confidence,
           volume: volumeMap[volume as keyof typeof volumeMap],
           trend,
-          raw_data: { analysis, reasoning },
+          raw_data: { analysis, reasoning, model_version: modelConfig.version, trace_id: traceId },
           timestamp: Math.floor(timestamp / 1000),
         };
 
@@ -167,14 +199,24 @@ Be realistic and data-driven in your assessment.`;
           .insert(sentimentData);
 
         if (insertError) {
-          console.error(`Error storing ${source} sentiment:`, insertError);
+          logWarn({
+            component: 'ml-sentiment-analysis',
+            message: 'Error storing sentiment',
+            trace_id: traceId,
+            context: { source, error: insertError.message },
+          });
         }
 
         // Small delay to avoid rate limits
         await new Promise(resolve => setTimeout(resolve, 500));
         
       } catch (error) {
-        console.error(`Error analyzing ${source}:`, error);
+        logWarn({
+          component: 'ml-sentiment-analysis',
+          message: 'Error analyzing source',
+          trace_id: traceId,
+          context: { source, error: (error as Error).message },
+        });
         continue;
       }
     }
@@ -204,7 +246,11 @@ Be realistic and data-driven in your assessment.`;
     );
     
   } catch (error: any) {
-    console.error('Error in ML sentiment analysis:', error);
+    logError({
+      component: 'ml-sentiment-analysis',
+      message: 'Error in ML sentiment analysis',
+      context: { error: error.message },
+    });
     
     const isAuthError = error.message?.includes('authorization') || 
                         error.message?.includes('token') || 

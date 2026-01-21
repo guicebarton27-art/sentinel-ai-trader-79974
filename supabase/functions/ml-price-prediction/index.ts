@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
+import { fetchWithResilience, getAiModelConfig, requireAiConfig } from "../_shared/ai.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -61,7 +63,13 @@ serve(async (req) => {
   try {
     // Authenticate user and verify role
     const { user, role } = await authenticateUser(req);
-    console.log(`User ${user.id} (${role}) requesting ML price prediction`);
+    const traceId = crypto.randomUUID();
+    logInfo({
+      component: 'ml-price-prediction',
+      message: 'ML price prediction request',
+      trace_id: traceId,
+      context: { user_id: user.id, role },
+    });
 
     // Parse and validate input
     const rawInput = await req.json();
@@ -78,17 +86,19 @@ serve(async (req) => {
 
     const { symbol, horizons } = parseResult.data;
     
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const aiConfig = requireAiConfig();
+    const modelConfig = getAiModelConfig();
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    if (!LOVABLE_API_KEY) {
-      throw new Error('AI service not configured');
-    }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    console.log(`Generating ML price predictions for ${symbol} across ${horizons.length} horizons`);
+    logInfo({
+      component: 'ml-price-prediction',
+      message: 'Generating ML price predictions',
+      trace_id: traceId,
+      context: { symbol, horizons, model: modelConfig.model, version: modelConfig.version },
+    });
 
     // Fetch recent market data
     const { data: candles } = await supabase
@@ -178,14 +188,14 @@ Using multi-model ensemble approach (combining TFT, N-BEATS, and LSTM patterns),
 Be data-driven and realistic in your analysis.`;
 
       try {
-        const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        const response = await fetchWithResilience('ml-price-prediction', aiConfig.gatewayUrl, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+            'Authorization': `Bearer ${aiConfig.apiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
+            model: aiConfig.model,
             messages: [
               { role: 'system', content: 'You are an expert quantitative analyst and ML engineer specializing in time-series price prediction for cryptocurrency markets.' },
               { role: 'user', content: prompt }
@@ -198,7 +208,12 @@ Be data-driven and realistic in your analysis.`;
 
         if (!response.ok) {
           if (response.status === 429) {
-            console.log(`Rate limited for ${horizon}, using rule-based fallback`);
+            logWarn({
+              component: 'ml-price-prediction',
+              message: 'Rate limited, using rule-based fallback',
+              trace_id: traceId,
+              context: { horizon },
+            });
             usedFallback = true;
             
             // Rule-based prediction fallback
@@ -217,10 +232,20 @@ Be data-driven and realistic in your analysis.`;
 7. Volatility Forecast: ${volatility > 3 ? 'high' : volatility < 1 ? 'low' : 'medium'}
 8. Key Factors: Price ${currentPrice > sma20 ? 'above' : 'below'} SMA20, RSI at ${rsi.toFixed(1)}, momentum ${momentum > 0 ? 'positive' : 'negative'}.`;
           } else if (response.status === 402) {
-            console.error(`Payment required for ${horizon}`);
+            logError({
+              component: 'ml-price-prediction',
+              message: 'Payment required for AI service',
+              trace_id: traceId,
+              context: { horizon },
+            });
             continue;
           } else {
-            console.error(`AI API error for ${horizon}: ${response.status}`);
+            logWarn({
+              component: 'ml-price-prediction',
+              message: 'AI API error for horizon',
+              trace_id: traceId,
+              context: { horizon, status: response.status },
+            });
             continue;
           }
         } else {
@@ -228,7 +253,12 @@ Be data-driven and realistic in your analysis.`;
           analysis = data.choices[0].message.content;
         }
         
-        console.log(`ML prediction for ${horizon}:`, usedFallback ? '(fallback)' : '(AI)', analysis.slice(0, 150));
+        logInfo({
+          component: 'ml-price-prediction',
+          message: 'Prediction parsed',
+          trace_id: traceId,
+          context: { horizon, usedFallback },
+        });
 
         // Parse AI response
         const priceMatch = analysis.match(/Predicted Price[:\s]+\$?([0-9,.]+)/i);
@@ -262,9 +292,11 @@ Be data-driven and realistic in your analysis.`;
             resistance: resistanceLevel,
             volatility: volatilityForecast,
             factors: keyFactors,
+            model_version: modelConfig.version,
+            trace_id: traceId,
           },
           confidence,
-          model_id: null, // Will be linked to model registry later
+          model_id: null,
         };
 
         predictions.push(predictionData);
@@ -275,13 +307,23 @@ Be data-driven and realistic in your analysis.`;
           .insert(predictionData);
 
         if (insertError) {
-          console.error(`Error storing ${horizon} prediction:`, insertError);
+          logWarn({
+            component: 'ml-price-prediction',
+            message: 'Error storing prediction',
+            trace_id: traceId,
+            context: { horizon, error: insertError.message },
+          });
         }
 
         await new Promise(resolve => setTimeout(resolve, 500));
         
       } catch (error) {
-        console.error(`Error analyzing ${horizon}:`, error);
+        logWarn({
+          component: 'ml-price-prediction',
+          message: 'Error analyzing horizon',
+          trace_id: traceId,
+          context: { horizon, error: (error as Error).message },
+        });
         continue;
       }
     }
@@ -306,7 +348,11 @@ Be data-driven and realistic in your analysis.`;
     );
     
   } catch (error: any) {
-    console.error('Error in ML price prediction:', error);
+    logError({
+      component: 'ml-price-prediction',
+      message: 'Error in ML price prediction',
+      context: { error: error.message },
+    });
     
     const isAuthError = error.message?.includes('authorization') || 
                         error.message?.includes('token') || 
