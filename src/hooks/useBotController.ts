@@ -96,6 +96,7 @@ export function useBotController() {
   // Fetch all user's bots
   const fetchBots = useCallback(async () => {
     try {
+      setError(null);
       const { data, error: fetchError } = await supabase.functions.invoke('bot-controller/list');
       if (fetchError) throw fetchError;
       setBots(data?.bots || []);
@@ -115,6 +116,7 @@ export function useBotController() {
   // Fetch bot status with positions, orders, events
   const fetchBotStatus = useCallback(async (botId: string) => {
     try {
+      setError(null);
       const { data, error: fetchError } = await supabase.functions.invoke('bot-controller/status', {
         body: { bot_id: botId }
       });
@@ -154,6 +156,7 @@ export function useBotController() {
     api_key_id?: string;
   }) => {
     try {
+      setError(null);
       const { data, error: createError } = await supabase.functions.invoke('bot-controller/create', {
         body: config
       });
@@ -175,6 +178,7 @@ export function useBotController() {
   // Start bot
   const startBot = useCallback(async (botId: string, mode?: 'paper' | 'live') => {
     try {
+      setError(null);
       const { data, error: startError } = await supabase.functions.invoke('bot-controller/start', {
         body: { bot_id: botId, mode }
       });
@@ -196,6 +200,7 @@ export function useBotController() {
   // Pause bot
   const pauseBot = useCallback(async (botId: string) => {
     try {
+      setError(null);
       const { data, error: pauseError } = await supabase.functions.invoke('bot-controller/pause', {
         body: { bot_id: botId }
       });
@@ -217,6 +222,7 @@ export function useBotController() {
   // Stop bot
   const stopBot = useCallback(async (botId: string) => {
     try {
+      setError(null);
       const { data, error: stopError } = await supabase.functions.invoke('bot-controller/stop', {
         body: { bot_id: botId }
       });
@@ -238,6 +244,7 @@ export function useBotController() {
   // Kill bot (emergency stop)
   const killBot = useCallback(async (botId: string) => {
     try {
+      setError(null);
       const { data, error: killError } = await supabase.functions.invoke('bot-controller/kill', {
         body: { bot_id: botId }
       });
@@ -259,6 +266,7 @@ export function useBotController() {
   // Update bot configuration
   const updateBot = useCallback(async (botId: string, updates: Partial<Bot>) => {
     try {
+      setError(null);
       const { data, error: updateError } = await supabase.functions.invoke('bot-controller/update', {
         body: { bot_id: botId, ...updates }
       });
@@ -280,6 +288,7 @@ export function useBotController() {
   // Delete bot
   const deleteBot = useCallback(async (botId: string) => {
     try {
+      setError(null);
       const { error: deleteError } = await supabase.functions.invoke('bot-controller/delete', {
         body: { bot_id: botId }
       });

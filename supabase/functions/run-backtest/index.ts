@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
+import { requireEnv } from "../_shared/env.ts";
+import { logError, logInfo, logWarn } from "../_shared/logging.ts";
+import { MarketCandle } from "../_shared/trading.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,19 +34,11 @@ const BacktestSchema = z.object({
   endTimestamp: z.number().int().positive().max(Math.floor(Date.now() / 1000) + 86400),
   initialCapital: z.number().positive().min(100, "Minimum capital is $100").max(1000000000, "Maximum capital is $1B"),
   strategyConfig: StrategyConfigSchema,
+  seed: z.number().int().optional(),
 }).refine(data => data.endTimestamp > data.startTimestamp, {
   message: "End timestamp must be after start timestamp",
   path: ["endTimestamp"],
 });
-
-interface Candle {
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
 
 interface Trade {
   entry_timestamp: number;
@@ -67,15 +62,32 @@ interface StrategyConfig {
   maxPositionSize: number;
 }
 
+interface AuthResult {
+  user: { id: string; email: string };
+  role: string;
+  isService?: boolean;
+}
+
 // Authenticate user and check role
-async function authenticateUser(req: Request) {
+async function authenticateUser(req: Request): Promise<AuthResult> {
   const authHeader = req.headers.get('Authorization');
+  const serviceHeader = req.headers.get('x-service-role');
+  const serviceKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (serviceHeader && serviceHeader === serviceKey) {
+    return {
+      user: { id: 'service', email: 'service@local' },
+      role: 'admin',
+      isService: true,
+    };
+  }
+
   if (!authHeader) {
     throw new Error('Missing authorization header');
   }
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  const supabaseUrl = requireEnv('SUPABASE_URL');
+  const supabaseAnonKey = requireEnv('SUPABASE_ANON_KEY');
   
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } }
@@ -102,7 +114,7 @@ async function authenticateUser(req: Request) {
 }
 
 // Calculate technical indicators
-function calculateSMA(candles: Candle[], period: number): number[] {
+function calculateSMA(candles: MarketCandle[], period: number): number[] {
   const sma: number[] = [];
   for (let i = 0; i < candles.length; i++) {
     if (i < period - 1) {
@@ -115,7 +127,7 @@ function calculateSMA(candles: Candle[], period: number): number[] {
   return sma;
 }
 
-function calculateRSI(candles: Candle[], period: number = 14): number[] {
+function calculateRSI(candles: MarketCandle[], period: number = 14): number[] {
   const rsi: number[] = [];
   const gains: number[] = [];
   const losses: number[] = [];
@@ -140,7 +152,7 @@ function calculateRSI(candles: Candle[], period: number = 14): number[] {
 }
 
 // Generate trading signal
-function generateSignal(candles: Candle[], index: number, config: StrategyConfig): number {
+function generateSignal(candles: MarketCandle[], index: number, config: StrategyConfig): number {
   if (index < 50) return 0; // Need enough data for indicators
 
   const sma20 = calculateSMA(candles.slice(0, index + 1), 20);
@@ -171,7 +183,7 @@ function generateSignal(candles: Candle[], index: number, config: StrategyConfig
 }
 
 // Run backtest
-function runBacktest(candles: Candle[], config: StrategyConfig, initialCapital: number) {
+function runBacktest(candles: MarketCandle[], config: StrategyConfig, initialCapital: number) {
   const trades: Trade[] = [];
   const equityCurve: { timestamp: number; equity: number; drawdown: number }[] = [];
   
@@ -343,6 +355,59 @@ function calculateMetrics(trades: Trade[], initialCapital: number, finalCapital:
   };
 }
 
+const mulberry32 = (seed: number) => {
+  let t = seed;
+  return () => {
+    t += 0x6D2B79F5;
+    let r = Math.imul(t ^ (t >>> 15), t | 1);
+    r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const generateSyntheticCandles = (
+  startTimestamp: number,
+  endTimestamp: number,
+  intervalSeconds: number,
+  seed: number
+): MarketCandle[] => {
+  const rng = mulberry32(seed);
+  const candles: MarketCandle[] = [];
+  let price = 50000;
+
+  for (let timestamp = startTimestamp; timestamp <= endTimestamp; timestamp += intervalSeconds) {
+    const drift = (rng() - 0.5) * 200;
+    const open = price;
+    const close = Math.max(100, price + drift);
+    const high = Math.max(open, close) + rng() * 50;
+    const low = Math.min(open, close) - rng() * 50;
+    const volume = 100 + rng() * 50;
+    price = close;
+
+    candles.push({
+      timestamp,
+      open,
+      high,
+      low,
+      close,
+      volume,
+    });
+  }
+
+  return candles;
+};
+
+const intervalToSeconds: Record<string, number> = {
+  '1m': 60,
+  '5m': 300,
+  '15m': 900,
+  '30m': 1800,
+  '1h': 3600,
+  '4h': 14400,
+  '1d': 86400,
+  '1w': 604800,
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -350,8 +415,12 @@ serve(async (req) => {
 
   try {
     // Authenticate user and verify role
-    const { user, role } = await authenticateUser(req);
-    console.log(`User ${user.id} (${role}) running backtest`);
+    const { user, role, isService } = await authenticateUser(req);
+    logInfo({
+      component: 'run-backtest',
+      message: 'Backtest request received',
+      context: { user_id: user.id, role, service: isService ?? false },
+    });
 
     // Parse and validate input
     const rawInput = await req.json();
@@ -359,20 +428,29 @@ serve(async (req) => {
     
     if (!parseResult.success) {
       const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
-      console.error('Validation error:', errorMessage);
+      logWarn({
+        component: 'run-backtest',
+        message: 'Validation error',
+        context: { error: errorMessage },
+      });
       return new Response(
         JSON.stringify({ error: 'Invalid input', details: errorMessage }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const { name, symbol, interval, startTimestamp, endTimestamp, initialCapital, strategyConfig } = parseResult.data;
+    const { name, symbol, interval, startTimestamp, endTimestamp, initialCapital, strategyConfig, seed } = parseResult.data;
+    const seedValue = seed ?? 42;
 
-    console.log('Running backtest:', { name, symbol, interval, startTimestamp, endTimestamp });
+    logInfo({
+      component: 'run-backtest',
+      message: 'Running backtest',
+      context: { name, symbol, interval, startTimestamp, endTimestamp, seed: seedValue },
+    });
 
     // Initialize Supabase client with service role for data access
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseUrl = requireEnv('SUPABASE_URL');
+    const supabaseKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Fetch historical data
@@ -387,34 +465,38 @@ serve(async (req) => {
 
     if (fetchError) throw fetchError;
     
-    if (!candles || candles.length === 0) {
-      // Try to get available date range to help user
-      const { data: availableData } = await supabase
-        .from('historical_candles')
-        .select('timestamp')
-        .eq('symbol', symbol)
-        .eq('interval', interval)
-        .order('timestamp', { ascending: true })
-        .limit(1);
-        
-      if (availableData && availableData.length > 0) {
-        const oldestDate = new Date(availableData[0].timestamp * 1000).toISOString().split('T')[0];
-        throw new Error(`No data found for selected date range. Available data starts from ${oldestDate}. Try fetching historical data first.`);
-      }
-      
-      throw new Error('No historical data available. Please fetch data first.');
+    let backtestCandles = candles as MarketCandle[] | null;
+    let syntheticDataUsed = false;
+
+    if (!backtestCandles || backtestCandles.length === 0) {
+      const intervalSeconds = intervalToSeconds[interval] ?? 60;
+      backtestCandles = generateSyntheticCandles(startTimestamp, endTimestamp, intervalSeconds, seedValue);
+      syntheticDataUsed = true;
+      logWarn({
+        component: 'run-backtest',
+        message: 'No historical data found; using synthetic candles',
+        context: { symbol, interval, count: backtestCandles.length },
+      });
     }
 
-    console.log(`Loaded ${candles.length} candles for backtest`);
+    logInfo({
+      component: 'run-backtest',
+      message: 'Loaded candles for backtest',
+      context: { count: backtestCandles.length, synthetic: syntheticDataUsed },
+    });
 
     // Run backtest
     const { trades, equityCurve, finalCapital } = runBacktest(
-      candles as Candle[],
+      backtestCandles,
       strategyConfig,
       initialCapital
     );
 
-    console.log(`Backtest complete: ${trades.length} trades, final capital: ${finalCapital}`);
+    logInfo({
+      component: 'run-backtest',
+      message: 'Backtest complete',
+      context: { trades: trades.length, finalCapital },
+    });
 
     // Calculate metrics
     const metrics = calculateMetrics(trades, initialCapital, finalCapital, equityCurve);
@@ -431,7 +513,7 @@ serve(async (req) => {
         initial_capital: initialCapital,
         final_capital: finalCapital,
         ...metrics,
-        strategy_config: strategyConfig,
+        strategy_config: { ...strategyConfig, seed: seedValue },
       })
       .select()
       .single();
@@ -473,12 +555,17 @@ serve(async (req) => {
         backtest_run_id: backtestRun.id,
         metrics,
         trades_count: trades.length,
+        synthetic_data_used: syntheticDataUsed,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error: any) {
-    console.error('Error running backtest:', error);
+    logError({
+      component: 'run-backtest',
+      message: 'Error running backtest',
+      context: { error: error.message },
+    });
     
     // Return user-friendly error messages
     const isAuthError = error.message?.includes('authorization') || 

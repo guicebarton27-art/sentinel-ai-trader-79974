@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { 
@@ -23,7 +22,7 @@ import {
   Plus,
   Trash2
 } from 'lucide-react';
-import { useBotController, Bot as BotType } from '@/hooks/useBotController';
+import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
 
 interface BotControlsProps {
@@ -225,6 +224,7 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
       setStopLoss(activeBot.stop_loss_pct);
       setTakeProfit(activeBot.take_profit_pct);
       setMaxDailyLoss(activeBot.max_daily_loss);
+      setStartingCapital(activeBot.starting_capital);
     }
   }, [activeBot?.id]);
 

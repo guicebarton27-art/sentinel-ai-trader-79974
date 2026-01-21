@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { fetchWithResilience } from "../_shared/ai.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,6 +30,11 @@ interface StrategyDecision {
 }
 
 async function authenticateUser(req: Request, supabase: any) {
+  const serviceHeader = req.headers.get('x-service-role');
+  if (serviceHeader && serviceHeader === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
+    return { user: { id: 'service-role' }, role: 'service' };
+  }
+
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
     throw new Error('Missing authorization header');
@@ -157,7 +163,7 @@ Based on this analysis, provide your trading decision.`;
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const aiResponse = await fetchWithResilience('ai-strategy-engine', 'https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${LOVABLE_API_KEY}`,

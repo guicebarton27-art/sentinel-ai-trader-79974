@@ -37,6 +37,7 @@ const SelfTest = () => {
   ]);
   const [previousRuns, setPreviousRuns] = useState<TestRun[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -45,11 +46,30 @@ const SelfTest = () => {
         navigate('/auth');
         return;
       }
+
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+      const resolvedRole = roleData?.role ?? 'viewer';
+      if (resolvedRole !== 'admin') {
+        toast({
+          title: "Access denied",
+          description: "System self-test is restricted to administrators.",
+          variant: "destructive",
+        });
+        navigate('/');
+        return;
+      }
+
+      setRole(resolvedRole);
       setUserId(session.user.id);
       loadPreviousRuns(session.user.id);
     };
     checkAuth();
-  }, [navigate]);
+  }, [navigate, toast]);
 
   const loadPreviousRuns = async (uid: string) => {
     const { data, error } = await supabase
@@ -371,8 +391,8 @@ const SelfTest = () => {
   };
 
   const runAllTests = async () => {
-    if (!userId) {
-      toast({ title: "Error", description: "Not authenticated", variant: "destructive" });
+    if (!userId || role !== 'admin') {
+      toast({ title: "Error", description: "Not authenticated or authorized", variant: "destructive" });
       return;
     }
 

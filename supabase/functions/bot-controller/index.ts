@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseBoolean, requireEnv } from "../_shared/env.ts";
+import { logError } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,8 +20,8 @@ async function authenticateUser(req: Request) {
   }
 
   const supabaseClient = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_ANON_KEY'),
     { global: { headers: { Authorization: authHeader } } }
   );
 
@@ -42,8 +44,8 @@ async function logBotEvent(
   metrics?: { capital?: number; pnl?: number; price?: number }
 ) {
   const serviceClient = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_SERVICE_ROLE_KEY')
   );
 
   await serviceClient.from('bot_events').insert({
@@ -62,8 +64,8 @@ async function logBotEvent(
 // Create service client for admin operations
 function getServiceClient() {
   return createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_SERVICE_ROLE_KEY')
   );
 }
 
@@ -166,10 +168,30 @@ serve(async (req) => {
 
         if (fetchError || !bot) throw new Error('Bot not found');
 
-        // Validate: if live mode, require API key
+        // Validate: if live mode, require API key and kill switch disabled
         const targetMode = mode || bot.mode;
         if (targetMode === 'live' && !bot.api_key_id) {
           throw new Error('Live trading requires a configured API key');
+        }
+
+        if (targetMode === 'live') {
+          const { data: profile } = await supabaseClient
+            .from('profiles')
+            .select('global_kill_switch')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          const killSwitchActive = profile?.global_kill_switch ?? false;
+          const systemKillSwitch = parseBoolean(Deno.env.get('KILL_SWITCH_ENABLED'), true);
+          const liveTradingEnabled = parseBoolean(Deno.env.get('LIVE_TRADING_ENABLED'), false);
+
+          if (!liveTradingEnabled) {
+            throw new Error('Live trading is disabled by environment configuration');
+          }
+
+          if (systemKillSwitch || killSwitchActive) {
+            throw new Error('Live trading is blocked by kill switch');
+          }
         }
 
         // Update bot status
@@ -419,7 +441,11 @@ serve(async (req) => {
     }
   } catch (err: unknown) {
     const error = err as Error;
-    console.error('Bot controller error:', error);
+    logError({
+      component: 'bot-controller',
+      message: 'Bot controller error',
+      context: { error: error.message },
+    });
     return new Response(JSON.stringify({ error: error.message }), {
       status: error.message?.includes('authorization') || error.message?.includes('authentication') ? 401 : 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
