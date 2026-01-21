@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseBoolean, requireEnv } from "../_shared/env.ts";
+import { logError, logInfo } from "../_shared/logging.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,14 +21,23 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const serviceHeader = req.headers.get('x-service-role');
+  if (!serviceHeader || serviceHeader !== requireEnv('SUPABASE_SERVICE_ROLE_KEY')) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
   const serviceClient = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    requireEnv('SUPABASE_URL'),
+    requireEnv('SUPABASE_SERVICE_ROLE_KEY')
   );
 
   const results: { test: string; passed: boolean; details: string; data?: unknown }[] = [];
 
   try {
+    logInfo({ component: 'test-trading-loop', message: 'Starting trading loop test' });
     // Get a test bot (create one if needed)
     const { data: existingBots } = await serviceClient
       .from('bots')
@@ -239,6 +250,74 @@ serve(async (req) => {
       },
     });
 
+    // TEST D: AI strategy smoke test (optional)
+    const aiSmokeEnabled = parseBoolean(Deno.env.get('AI_SMOKE_TEST_ENABLED'), true);
+    const aiKey = Deno.env.get('LOVABLE_API_KEY');
+
+    if (!aiSmokeEnabled) {
+      results.push({
+        test: 'Test D: AI strategy smoke',
+        passed: true,
+        details: 'Skipped (AI_SMOKE_TEST_ENABLED=false)',
+      });
+    } else if (!aiKey) {
+      results.push({
+        test: 'Test D: AI strategy smoke',
+        passed: true,
+        details: 'Skipped (LOVABLE_API_KEY not set)',
+      });
+    } else {
+      try {
+        const response = await fetch(`${requireEnv('SUPABASE_URL')}/functions/v1/ai-strategy-engine`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-service-role': requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
+          },
+          body: JSON.stringify({
+            marketState: {
+              symbol: 'BTC/USD',
+              currentPrice: 90000,
+              priceChange24h: 1.2,
+              volume24h: 45000,
+              sentiment: 0.1,
+              volatility: 2.3,
+              trendStrength: 1.1,
+            },
+            portfolio: {
+              currentCapital: 10000,
+              dailyPnl: 0,
+              openPosition: null,
+            },
+            riskTolerance: 'moderate',
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          results.push({
+            test: 'Test D: AI strategy smoke',
+            passed: false,
+            details: `AI strategy engine failed: ${response.status} ${errorText}`,
+          });
+        } else {
+          const aiData = await response.json();
+          const hasDecision = Boolean(aiData?.decision?.action);
+          results.push({
+            test: 'Test D: AI strategy smoke',
+            passed: hasDecision,
+            details: hasDecision ? 'AI decision returned' : 'AI response missing decision',
+          });
+        }
+      } catch (error) {
+        results.push({
+          test: 'Test D: AI strategy smoke',
+          passed: false,
+          details: `AI smoke test error: ${(error as Error).message}`,
+        });
+      }
+    }
+
     // Update bot_run to completed
     await serviceClient
       .from('bot_runs')
@@ -263,6 +342,11 @@ serve(async (req) => {
 
   } catch (err) {
     const error = err as Error;
+    logError({
+      component: 'test-trading-loop',
+      message: 'Test trading loop failed',
+      context: { error: error.message },
+    });
     return new Response(JSON.stringify({
       success: false,
       error: error.message,

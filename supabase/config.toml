@@ -1,8 +1,5 @@
 project_id = "swpjpzsnqpamdchdlkpf"
 
-[functions.bot-engine]
-verify_jwt = false
-
 [functions.bot-controller]
 verify_jwt = false
 
