@@ -13,7 +13,7 @@ interface CriticalPanelProps {
   totalPnlPercentage: number;
   currentDrawdown: number;
   riskScore: 'safe' | 'warning' | 'danger';
-  botStatus: 'running' | 'paused' | 'stopped';
+  botStatus: 'running' | 'paused' | 'stopped' | 'error';
 }
 
 export const CriticalPanel = ({ 
@@ -87,11 +87,11 @@ export const CriticalPanel = ({
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground font-medium">Bot Status</p>
             <Badge 
-              variant={botStatus === 'running' ? 'default' : botStatus === 'paused' ? 'secondary' : 'outline'}
+              variant={botStatus === 'running' ? 'default' : botStatus === 'paused' ? 'secondary' : botStatus === 'error' ? 'destructive' : 'outline'}
               className="justify-center w-full"
             >
               <Bot className="h-3 w-3 mr-1" />
-              {botStatus === 'running' ? 'Active' : botStatus === 'paused' ? 'Paused' : 'Inactive'}
+              {botStatus === 'running' ? 'Active' : botStatus === 'paused' ? 'Paused' : botStatus === 'error' ? 'Error' : 'Inactive'}
             </Badge>
           </div>
         </div>

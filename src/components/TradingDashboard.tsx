@@ -44,7 +44,8 @@ import { MLRiskEngine } from './trading/MLRiskEngine';
 import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { AutoMLAgent } from './trading/AutoMLAgent';
 import { SystemStatusWidget } from './trading/SystemStatusWidget';
-import { useTradingBot } from '@/hooks/useTradingBot';
+import { LiveTradesFeed } from './trading/LiveTradesFeed';
+import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
@@ -52,35 +53,66 @@ import { useNavigate } from 'react-router-dom';
 export const TradingDashboard = () => {
   const [minimalMode, setMinimalMode] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const { telemetry, isConnected, controlBot } = useTradingBot();
+  const { 
+    activeBot, 
+    positions, 
+    recentOrders, 
+    recentEvents,
+    health,
+    loading,
+    startBot,
+    pauseBot,
+    stopBot,
+    killBot
+  } = useBotController();
   const { toast } = useToast();
   const navigate = useNavigate();
   
-  const botStatus = telemetry?.status || 'stopped';
+  // Use DB-driven bot status (single source of truth)
+  const botStatus = activeBot?.status || 'stopped';
+  const isConnected = health?.is_healthy !== false;
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  // Calculate portfolio data from DB-driven activeBot and positions
+  const openPositions = positions.filter(p => p.status === 'open');
+  const totalPositionValue = openPositions.reduce((sum, p) => 
+    sum + (p.quantity * (p.current_price || p.entry_price)), 0);
+  const totalUnrealizedPnl = openPositions.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0);
+  
   const portfolioData = {
-    totalValue: telemetry?.nav || 1000000,
-    pnl: telemetry?.pnl || 0,
-    pnlPercentage: telemetry?.pnlPercentage || 0,
-    totalPnlPercentage: telemetry?.pnlPercentage || 0,
-    availableBalance: (telemetry?.nav || 1000000) * 0.35,
-    positions: [
-      { symbol: 'BTC/USD', size: 0.5, value: 32150.25, pnl: 1250.30, pnlPercentage: 4.05 },
-      { symbol: 'ETH/USD', size: 2.1, value: 5243.50, pnl: -156.20, pnlPercentage: -2.89 },
-      { symbol: 'XRP/USD', size: 1000, value: 620.00, pnl: 45.80, pnlPercentage: 7.98 }
-    ]
+    totalValue: activeBot?.current_capital || 10000,
+    pnl: activeBot?.daily_pnl || 0,
+    pnlPercentage: activeBot?.starting_capital 
+      ? ((activeBot.current_capital - activeBot.starting_capital) / activeBot.starting_capital * 100) 
+      : 0,
+    totalPnlPercentage: activeBot?.starting_capital 
+      ? ((activeBot.total_pnl || 0) / activeBot.starting_capital * 100) 
+      : 0,
+    availableBalance: (activeBot?.current_capital || 10000) - totalPositionValue,
+    positions: openPositions.map(p => ({
+      symbol: p.symbol,
+      size: p.quantity,
+      value: p.quantity * (p.current_price || p.entry_price),
+      pnl: p.unrealized_pnl || 0,
+      pnlPercentage: p.entry_price > 0 
+        ? (((p.current_price || p.entry_price) - p.entry_price) / p.entry_price * 100) 
+        : 0
+    }))
   };
 
   const executionMetrics = {
     fillRate: 98.2,
     slippage: 0.08,
-    latency: 11,
-    ordersToday: telemetry?.ordersToday || 0
+    latency: health?.last_heartbeat_age_seconds ? Math.min(Math.round(health.last_heartbeat_age_seconds * 1000 / 60), 20) : 11,
+    ordersToday: recentOrders.filter(o => {
+      const orderDate = new Date(o.created_at);
+      const today = new Date();
+      return orderDate.toDateString() === today.toDateString();
+    }).length
   };
 
   const riskMetrics = {
@@ -130,8 +162,25 @@ export const TradingDashboard = () => {
   ];
 
   const handleBotControl = async (action: 'start' | 'pause' | 'stop' | 'kill', mode?: 'paper' | 'live') => {
+    if (!activeBot) {
+      toast({
+        title: 'No Bot Selected',
+        description: 'Please create or select a bot first in Settings',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     try {
-      await controlBot(action, mode ? { mode } : undefined);
+      if (action === 'start') {
+        await startBot(activeBot.id, mode || activeBot.mode);
+      } else if (action === 'pause') {
+        await pauseBot(activeBot.id);
+      } else if (action === 'stop') {
+        await stopBot(activeBot.id);
+      } else if (action === 'kill') {
+        await killBot(activeBot.id);
+      }
       toast({
         title: `Bot ${action}ed`,
         description: action === 'kill' ? 'Emergency stop activated' : `Bot is now ${action === 'start' ? 'running' : action === 'pause' ? 'paused' : 'stopped'}`,
@@ -354,6 +403,11 @@ export const TradingDashboard = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-300">
+            <LiveTradesFeed 
+              positions={positions}
+              recentOrders={recentOrders}
+              recentEvents={recentEvents}
+            />
             <PortfolioOverview data={portfolioData} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <MLPricePrediction symbol="BTC/USD" />
