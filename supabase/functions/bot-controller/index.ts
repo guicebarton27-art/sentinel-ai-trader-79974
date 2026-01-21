@@ -79,7 +79,19 @@ serve(async (req) => {
     const pathParts = url.pathname.split('/').filter(Boolean);
     const action = pathParts[pathParts.length - 1];
 
-    const body = req.method === 'POST' ? await req.json() : {};
+    // Safely parse body - handle empty requests
+    // deno-lint-ignore no-explicit-any
+    let body: any = {};
+    if (req.method === 'POST') {
+      try {
+        const text = await req.text();
+        if (text && text.trim()) {
+          body = JSON.parse(text);
+        }
+      } catch {
+        // Empty or invalid body is ok for some actions like 'list'
+      }
+    }
 
     switch (action) {
       case 'list': {
