@@ -389,7 +389,7 @@ serve(async (req) => {
     }
 
     const evolutionHistory: { generation: number; bestFitness: number; avgFitness: number; bestReturn: number }[] = [];
-    let allResults: Map<string, BacktestResult> = new Map();
+    const allResults: Map<string, BacktestResult> = new Map();
 
     // Evolution loop
     for (let gen = 0; gen < generations; gen++) {
