@@ -45,6 +45,9 @@ import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { AutoMLAgent } from './trading/AutoMLAgent';
 import { SystemStatusWidget } from './trading/SystemStatusWidget';
 import { LiveTradesFeed } from './trading/LiveTradesFeed';
+import { AICommandCenter } from './trading/AICommandCenter';
+import { AutonomousAgentViz } from './trading/AutonomousAgentViz';
+import { NeuralDecisionViz } from './trading/NeuralDecisionViz';
 import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -403,7 +406,15 @@ export const TradingDashboard = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-300">
-            <LiveTradesFeed 
+            {/* Revolutionary AI Command Center */}
+            <AICommandCenter />
+            
+            {/* Autonomous Agent Network Visualization */}
+            <AutonomousAgentViz />
+            {/* Neural Decision Visualization */}
+            <NeuralDecisionViz />
+            
+            <LiveTradesFeed
               positions={positions}
               recentOrders={recentOrders}
               recentEvents={recentEvents}
