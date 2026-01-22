@@ -666,13 +666,54 @@ async function executeDecisionWithRisk(
   run: ExecutionRun | null,
   traceId: string,
   aiConfidenceOk: boolean,
+  bypassRiskChecks = false,
 ): Promise<void> {
+  const systemKillSwitch = parseBoolean(Deno.env.get('KILL_SWITCH_ENABLED'), true);
+
+  const executionMarketData: ExecutionMarketData = {
+    price: marketData.price,
+    bid: marketData.bid,
+    ask: marketData.ask,
+    source: marketData.source,
+    fetched_at: marketData.fetched_at,
+  };
+
+  const executeTrade = async (killSwitchActive: boolean) => {
+    const engine: ExecutionEngine = bot.mode === 'paper'
+      ? new PaperExecutionEngine(supabase, bot, run?.id ?? undefined)
+      : new LiveKrakenExecutionEngine({
+        supabase,
+        bot,
+        run,
+        config: getLiveConfig(killSwitchActive),
+        marketData: executionMarketData,
+        traceId,
+      });
+
+    await engine.executeTrade(decision);
+  };
+
+  if (bypassRiskChecks) {
+    await logEvent(
+      supabase,
+      bot.id,
+      bot.user_id,
+      'risk_alert',
+      'Protective exit bypassed risk checks',
+      'info',
+      { decision, trace_id: traceId, run_id: run?.id ?? null },
+      undefined,
+      run?.id ?? null
+    );
+    await executeTrade(false);
+    return;
+  }
+
   const cooldownMinutes = parseNumber(Deno.env.get('COOLDOWN_MINUTES_AFTER_LOSS'), 30);
   const tradeWindowMinutes = 60;
   const maxTradesPerHour = parseNumber(Deno.env.get('MAX_TRADES_PER_HOUR'), 5);
   const maxLossStreak = Math.max(1, parseNumber(Deno.env.get('MAX_CONSECUTIVE_LOSSES'), 3));
   const riskState = await getRiskState(supabase, bot, tradeWindowMinutes, cooldownMinutes, maxLossStreak);
-  const systemKillSwitch = parseBoolean(Deno.env.get('KILL_SWITCH_ENABLED'), true);
   const marketDataFresh = bot.mode === 'paper' ? true : marketData.source === 'live';
   const riskInputs: RiskInputs = {
     currentCapital: Number(bot.current_capital),
@@ -695,40 +736,23 @@ async function executeDecisionWithRisk(
   const riskCheck = evaluateRisk(decision, riskInputs);
 
   if (riskCheck.allowed) {
-    const executionMarketData: ExecutionMarketData = {
-      price: marketData.price,
-      bid: marketData.bid,
-      ask: marketData.ask,
-      source: marketData.source,
-      fetched_at: marketData.fetched_at,
-    };
     const killSwitchActive = systemKillSwitch || riskState.killSwitchActive;
-    const engine: ExecutionEngine = bot.mode === 'paper'
-      ? new PaperExecutionEngine(supabase, bot, run?.id ?? undefined)
-      : new LiveKrakenExecutionEngine({
-        supabase,
-        bot,
-        run,
-        config: getLiveConfig(killSwitchActive),
-        marketData: executionMarketData,
-        traceId,
-      });
-
-    await engine.executeTrade(decision);
-  } else {
-    await recordRiskRejection(supabase, bot, decision, riskCheck.flags, run?.id ?? null);
-    await logEvent(
-      supabase,
-      bot.id,
-      bot.user_id,
-      'risk_alert',
-      `Order blocked by risk limits: ${riskCheck.flags.join(', ')}`,
-      'warn',
-      { decision, riskCheck },
-      undefined,
-      run?.id ?? null
-    );
+    await executeTrade(killSwitchActive);
+    return;
   }
+
+  await recordRiskRejection(supabase, bot, decision, riskCheck.flags, run?.id ?? null);
+  await logEvent(
+    supabase,
+    bot.id,
+    bot.user_id,
+    'risk_alert',
+    `Order blocked by risk limits: ${riskCheck.flags.join(', ')}`,
+    'warn',
+    { decision, riskCheck },
+    undefined,
+    run?.id ?? null
+  );
 }
 
 // Process a single bot tick
@@ -777,7 +801,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Stop loss triggered',
             trace_id: traceId,
-          }, marketData, run, traceId, true);
+          }, marketData, run, traceId, true, true);
           await logEvent(
             supabase,
             bot.id,
@@ -817,7 +841,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Stop loss triggered',
             trace_id: traceId,
-          }, marketData, run, traceId, true);
+          }, marketData, run, traceId, true, true);
           await logEvent(
             supabase,
             bot.id,
