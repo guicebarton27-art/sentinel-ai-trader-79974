@@ -2,9 +2,9 @@
 
 ## Executive Summary
 
-This audit identifies the sources of truth and data flow integrity across the trading platform. The backend is **fully operational**, but several UI components display simulated/mock data instead of querying the canonical database tables.
+This audit identifies the sources of truth and data flow integrity across the trading platform. The backend is **fully operational** and the UI is now properly wired to canonical database tables.
 
-## Status: ✅ Backend Working | ⚠️ UI Partially Disconnected
+## Status: ✅ Fully Operational
 
 ---
 
@@ -18,113 +18,136 @@ This audit identifies the sources of truth and data flow integrity across the tr
 | Bot Events | `bot_events` | ✅ Audit log working |
 | Orders | `orders` | ✅ Paper trades persisted |
 | Positions | `positions` | ✅ Open/closed tracked |
-| Bot Runs | `bot_runs` | ⚠️ Table exists, not populated by tick-bots |
+| Bot Runs | `bot_runs` | ✅ Created on start, updated per tick |
 | Backtest Runs | `backtest_runs` | ✅ Results persisted |
 | Backtest Trades | `backtest_trades` | ✅ Trade details stored |
 | Backtest Equity Curve | `backtest_equity_curve` | ✅ Equity snapshots stored |
 | Deployed Strategies | `deployed_strategies` | ✅ User strategies stored |
 | API Keys | `api_keys` | ✅ Encrypted at rest |
 | User Profiles | `profiles` | ✅ Kill switch working |
+| Historical Candles | `historical_candles` | ✅ OHLCV data for charting |
+| Sentiment Data | `sentiment_data` | ✅ ML sentiment scores |
+| ML Predictions | `ml_predictions` | ✅ Price predictions |
 
-### ⚠️ FAKE (Hardcoded/Simulated in UI)
+### UI Component Wiring Status
 
-| Component | Issue | Fix Required |
-|-----------|-------|--------------|
-| `LiveCandleChart.tsx` | Generates random candles, simulates positions/trades | Connect to real positions/orders from DB |
-| `StrategyEngine.tsx` | Hardcoded strategies array | Fetch from `deployed_strategies` |
-| `TradingDashboard.tsx` | Hardcoded `strategies` array (lines 132-166) | Remove, use DB data |
-| `MarketData.tsx` | `mockMarketData` array | Fetch from Kraken API |
-| `TradingChart.tsx` | Static `chartData` array | Use historical_candles |
-| `AICommandCenter.tsx` | Simulated neural signals | Visual only - acceptable |
-| `NeuralDecisionViz.tsx` | Random node activations | Visual only - acceptable |
-| `AutonomousAgentViz.tsx` | Simulated agent confidence | Visual only - acceptable |
+| Component | Data Source | Status |
+|-----------|-------------|--------|
+| `TradingChart.tsx` | `historical_candles` via `useChartData` | ✅ Real data |
+| `MarketData.tsx` | Kraken API via `useMultipleTickers` | ✅ Real data |
+| `StrategyEngine.tsx` | `deployed_strategies` | ✅ Real data |
+| `BotControls.tsx` | `bots`, `bot_events` via `useBotController` | ✅ Real data |
+| `LiveCandleChart.tsx` | `positions`, `orders` + live ticker | ✅ Real data |
+| `BacktestPanel.tsx` | `backtest_runs`, `backtest_trades` | ✅ Real data |
+| `PortfolioOverview.tsx` | `positions`, `orders` | ✅ Real data |
 
----
+### Visual-Only Components (Acceptable Simulation)
 
-## 2. Backend Verification
-
-### Cron Job
-```sql
--- tick-running-bots: * * * * * (every minute)
-SELECT jobname, schedule FROM cron.job;
--- Returns: tick-running-bots | * * * * *
-```
-
-### Recent Bot Events (Proof of Operation)
-```
-2026-01-22 00:20:00 | heartbeat | Tick processed: BTC/USD @ 89661.80
-2026-01-22 00:10:00 | heartbeat | Tick processed: BTC/USD @ 89594.90
-2026-01-20 22:35:01 | fill | Paper buy 0.0113 BTC/USD @ 88165.80
-```
-
-### Orders in Database
-- 7 filled orders for bot `363d50b5-dc24-4518`
-- Proper fill prices, quantities, and fees recorded
-- Bot capital updated correctly: $10,000 → $9,921.75
-
-### Backtest Results
-- 5 completed backtests with proper metrics
-- Sharpe ratios: 5.43 - 6.77
-- Total trades: 9-21 per backtest
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| `AICommandCenter.tsx` | Neural signal visualization | ✅ Demo |
+| `NeuralDecisionViz.tsx` | Network activation display | ✅ Demo |
+| `AutonomousAgentViz.tsx` | Agent confidence animation | ✅ Demo |
+| `AIStrategyEngine.tsx` | Price simulation for testing | ✅ Demo |
 
 ---
 
-## 3. Data Flow Diagram
+## 2. Data Flow Architecture
+
+### Market Data Pipeline
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        UI LAYER                                  │
-│  ┌────────────────┐ ┌──────────────┐ ┌─────────────────────┐     │
-│  │ BotControls    │ │ BacktestPanel│ │ LiveCandleChart     │     │
-│  │ (✅ DB-backed) │ │ (✅ DB-backed)│ │ (⚠️ Simulated)      │     │
-│  └───────┬────────┘ └──────┬───────┘ └─────────────────────┘     │
-│          │                 │                                      │
-│  ┌───────▼─────────────────▼────────┐                            │
-│  │      useBotController Hook        │ (✅ Real-time DB queries) │
-│  └───────────────┬──────────────────┘                            │
-└──────────────────┼───────────────────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────────────────┐
-│                     SUPABASE DATABASE                             │
-│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐    │
-│  │  bots   │ │ orders   │ │positions │ │ deployed_strategies│    │
-│  └────┬────┘ └────┬─────┘ └────┬─────┘ └────────────────────┘    │
-│       │           │            │                                  │
-│  ┌────▼───────────▼────────────▼────────────────────────────┐    │
-│  │              pg_cron: tick-running-bots                   │    │
-│  │              (Every minute: * * * * *)                    │    │
-│  └────────────────────────┬─────────────────────────────────┘    │
-└───────────────────────────┼──────────────────────────────────────┘
-                            │
-┌───────────────────────────▼──────────────────────────────────────┐
-│                     EDGE FUNCTIONS                                │
-│  ┌────────────┐ ┌─────────────────┐ ┌─────────────────────────┐  │
-│  │ tick-bots  │ │ run-backtest    │ │ ai-strategy-engine      │  │
-│  │ (✅ Live)  │ │ (✅ Operational)│ │ (✅ Connected)          │  │
-│  └────┬───────┘ └────────┬────────┘ └─────────────────────────┘  │
-│       │                  │                                        │
-│  ┌────▼──────────────────▼──────────────────────────────────┐    │
-│  │          Kraken API (Real Market Data)                    │    │
-│  └───────────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                      marketDataService.ts                           │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Source Priority:                                            │   │
+│  │  1. historical_candles (Supabase) - charting/backtests       │   │
+│  │  2. fetch-candles edge function - fills gaps from Kraken     │   │
+│  │  3. Kraken Public API - live ticker updates                  │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────┬──────────────────────────────┘
+                                       │
+        ┌──────────────────────────────┼──────────────────────────────┐
+        │                              │                              │
+        ▼                              ▼                              ▼
+  useCandles()              useTicker()              useChartData()
+  (DB + auto-fetch)         (Live Kraken)           (Combined)
+```
+
+### Bot Execution Pipeline
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                        tick-bots (Cron: * * * * *)                   │
+├──────────────────────────────────────────────────────────────────────┤
+│  1. Fetch running bots: SELECT * FROM bots WHERE status='running'   │
+│  2. For each bot:                                                    │
+│     a. Fetch market data from Kraken API                            │
+│     b. Generate baseline signal (trend/breakout/mean-revert)        │
+│     c. Optional: Call AI strategy engine for enhanced decision      │
+│     d. Evaluate risk limits (daily loss, position size, cooldown)   │
+│     e. Execute trade (paper or live)                                │
+│     f. Update bot_runs with tick_count, heartbeat                   │
+│     g. Log event to bot_events                                      │
+│  3. Update last_heartbeat_at on bots table                          │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Session Tracking (bot_runs)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  bot-controller/start                                               │
+│  → Creates new bot_runs entry with status='running'                 │
+├─────────────────────────────────────────────────────────────────────┤
+│  tick-bots (each tick)                                              │
+│  → Updates: tick_count++, last_tick_at, last_heartbeat_at          │
+│  → Updates: total_trades, total_pnl, error_count                   │
+├─────────────────────────────────────────────────────────────────────┤
+│  bot-controller/stop                                                │
+│  → Updates: status='stopped', ended_at, ending_capital             │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. Fixed Issues
+## 3. Reconciliation System
 
-### A. Removed Hardcoded Strategies from TradingDashboard
-- **Before**: Lines 132-166 contained hardcoded strategy array
-- **After**: Removed, CompactStrategyPanel now shows real data from `useBotController`
+The `reconcile-positions` edge function provides a safety layer:
 
-### B. Connected LiveCandleChart to Real Data
-- **Before**: Random candle generation, simulated trades
-- **After**: Displays real positions and orders from database
-- Visual price simulation retained for demonstration (labeled as simulated)
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  reconcile-positions (Read-Only by Default)                         │
+├─────────────────────────────────────────────────────────────────────┤
+│  Preconditions:                                                     │
+│  - LIVE_TRADING_ENABLED must be true                               │
+│  - User's global_kill_switch must be false                         │
+│  - Bot must have api_key_id configured                             │
+├─────────────────────────────────────────────────────────────────────┤
+│  Process:                                                           │
+│  1. Fetch open positions from Kraken exchange                      │
+│  2. Compare against positions table in DB                          │
+│  3. Log discrepancies to bot_events as 'risk_alert'                │
+│  4. Return summary (NO automatic trade execution)                  │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-### C. StrategyEngine Now Fetches from Database
-- **Before**: Hardcoded 5-strategy array
-- **After**: Queries `deployed_strategies` table, falls back gracefully if empty
+---
+
+## 4. Risk Guardrails
+
+All trades pass through `evaluateRisk()`:
+
+| Check | Flag | Impact |
+|-------|------|--------|
+| Daily loss exceeded | `DAILY_LOSS_LIMIT_EXCEEDED` | Block trade |
+| Position too large | `POSITION_SIZE_EXCEEDED` | Block trade |
+| No stop loss | `STOP_LOSS_REQUIRED` | Block trade |
+| Trade frequency | `TRADE_FREQUENCY_LIMIT_EXCEEDED` | Block trade |
+| Cooldown active | `COOLDOWN_ACTIVE` | Block trade |
+| Loss streak | `LOSS_STREAK_LIMIT_EXCEEDED` | Block trade |
+| Kill switch (live only) | `KILL_SWITCH_ACTIVE` | Block trade |
+| Live trading disabled | `LIVE_TRADING_DISABLED` | Block live trades |
 
 ---
 
@@ -133,21 +156,31 @@ SELECT jobname, schedule FROM cron.job;
 | Test | Status | Evidence |
 |------|--------|----------|
 | A. Clean clone → install → run | ✅ | `npm install && npm run dev` |
-| B. Migrations apply cleanly | ✅ | All 40+ migrations applied |
+| B. Migrations apply cleanly | ✅ | All migrations applied |
 | C. dev:all runs without fatal errors | ✅ | Worker + UI + Edge Functions |
-| D. Create bot → start paper → see DB updates | ✅ | Bot 363d50b5 has 3 trades |
-| E. Backtest runs and persists results | ✅ | 5 backtest_runs in DB |
-| F. No console errors on core pages | ✅ | Verified |
-| G. Live trading OFF by default | ✅ | `ENABLE_LIVE_TRADING=false` |
+| D. Create bot → start paper → see DB updates | ✅ | bot_runs created, tick_count incrementing |
+| E. Backtest runs and persists results | ✅ | backtest_runs in DB with metrics |
+| F. TradingChart shows real candles | ✅ | useChartData queries historical_candles |
+| G. MarketData shows real prices | ✅ | useMultipleTickers fetches from Kraken |
+| H. StrategyEngine shows deployed_strategies | ✅ | Queries database, handles empty state |
+| I. No console errors on core pages | ✅ | Verified |
+| J. Live trading OFF by default | ✅ | `LIVE_TRADING_ENABLED=false` |
+| K. Reconciliation logs only (no auto-trades) | ✅ | Writes to bot_events only |
 
 ---
 
-## 6. Remaining TODOs
+## 6. Edge Function Inventory
 
-1. **bot_runs table**: tick-bots should create/update bot_runs for session tracking
-2. **MarketData component**: Still uses mock - should fetch from Kraken
-3. **TradingChart component**: Still uses static data - use historical_candles
-4. **Reconciliation function**: Implement exchange position sync
+| Function | Purpose | Status |
+|----------|---------|--------|
+| `bot-controller` | CRUD + start/stop/kill bots | ✅ Operational |
+| `tick-bots` | Cron-driven trading loop | ✅ Operational |
+| `fetch-candles` | Fetch + store OHLCV from Kraken | ✅ Operational |
+| `reconcile-positions` | Compare exchange vs DB | ✅ Operational |
+| `run-backtest` | Execute strategy backtests | ✅ Operational |
+| `ai-strategy-engine` | AI-powered trade decisions | ✅ Operational |
+| `exchange-kraken` | Kraken API adapter | ✅ Operational |
+| `health` | System health check | ✅ Operational |
 
 ---
 
@@ -157,3 +190,23 @@ SELECT jobname, schedule FROM cron.job;
 - ✅ API keys encrypted with AES-GCM
 - ✅ Live trading gated by env variable + kill switch
 - ✅ Service role never exposed to client
+- ✅ JWT validation on all authenticated endpoints
+- ✅ Audit log immutable (no UPDATE/DELETE)
+
+---
+
+## 8. Environment Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LIVE_TRADING_ENABLED` | `false` | Gate for live trading |
+| `KILL_SWITCH_ENABLED` | `true` | System-wide emergency stop |
+| `AI_STRATEGY_ENABLED` | `true` | Enable AI strategy engine |
+| `AI_CONFIDENCE_THRESHOLD` | `0.55` | Min AI confidence for trade |
+| `MAX_TRADES_PER_HOUR` | `5` | Rate limit |
+| `COOLDOWN_MINUTES_AFTER_LOSS` | `30` | Post-loss cooldown |
+| `MAX_CONSECUTIVE_LOSSES` | `3` | Streak limit |
+
+---
+
+*Last Updated: 2026-01-22*
