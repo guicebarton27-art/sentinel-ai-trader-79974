@@ -147,8 +147,6 @@ export type Database = {
           status: string
           strategy_config: Json
           symbol: string
-          run_id: string | null
-          trace_id: string | null
           total_return: number
           total_trades: number
           walk_forward_analysis: Json | null
@@ -177,8 +175,6 @@ export type Database = {
           status?: string
           strategy_config: Json
           symbol: string
-          run_id?: string | null
-          trace_id?: string | null
           total_return: number
           total_trades: number
           walk_forward_analysis?: Json | null
@@ -207,8 +203,6 @@ export type Database = {
           status?: string
           strategy_config?: Json
           symbol?: string
-          run_id?: string | null
-          trace_id?: string | null
           total_return?: number
           total_trades?: number
           walk_forward_analysis?: Json | null
@@ -283,9 +277,7 @@ export type Database = {
           order_id: string | null
           payload: Json | null
           position_id: string | null
-          run_id: string | null
           severity: string
-          trace_id: string | null
           user_id: string
         }
         Insert: {
@@ -300,9 +292,7 @@ export type Database = {
           order_id?: string | null
           payload?: Json | null
           position_id?: string | null
-          run_id?: string | null
           severity?: string
-          trace_id?: string | null
           user_id: string
         }
         Update: {
@@ -317,9 +307,7 @@ export type Database = {
           order_id?: string | null
           payload?: Json | null
           position_id?: string | null
-          run_id?: string | null
           severity?: string
-          trace_id?: string | null
           user_id?: string
         }
         Relationships: [
@@ -344,13 +332,6 @@ export type Database = {
             referencedRelation: "positions"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "bot_events_run_id_fkey"
-            columns: ["run_id"]
-            isOneToOne: false
-            referencedRelation: "runs"
-            referencedColumns: ["id"]
-          },
         ]
       }
       bot_runs: {
@@ -365,14 +346,12 @@ export type Database = {
           last_tick_at: string | null
           mode: string
           risk_config: Json | null
-          run_id: string | null
           started_at: string
           starting_capital: number
           status: string
           strategy_config: Json | null
           summary: Json | null
           tick_count: number | null
-          trace_id: string | null
           total_pnl: number | null
           total_trades: number | null
           user_id: string
@@ -389,14 +368,12 @@ export type Database = {
           last_tick_at?: string | null
           mode?: string
           risk_config?: Json | null
-          run_id?: string | null
           started_at?: string
           starting_capital?: number
           status?: string
           strategy_config?: Json | null
           summary?: Json | null
           tick_count?: number | null
-          trace_id?: string | null
           total_pnl?: number | null
           total_trades?: number | null
           user_id: string
@@ -413,14 +390,12 @@ export type Database = {
           last_tick_at?: string | null
           mode?: string
           risk_config?: Json | null
-          run_id?: string | null
           started_at?: string
           starting_capital?: number
           status?: string
           strategy_config?: Json | null
           summary?: Json | null
           tick_count?: number | null
-          trace_id?: string | null
           total_pnl?: number | null
           total_trades?: number | null
           user_id?: string
@@ -432,13 +407,6 @@ export type Database = {
             columns: ["bot_id"]
             isOneToOne: false
             referencedRelation: "bots"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "bot_runs_run_id_fkey"
-            columns: ["run_id"]
-            isOneToOne: false
-            referencedRelation: "runs"
             referencedColumns: ["id"]
           },
         ]
@@ -582,82 +550,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      fills: {
-        Row: {
-          bot_id: string
-          created_at: string
-          executed_at: string
-          fee: number | null
-          fee_currency: string | null
-          id: string
-          liquidity: string | null
-          order_id: string
-          price: number
-          quantity: number
-          run_id: string | null
-          side: Database["public"]["Enums"]["order_side"]
-          symbol: string
-          trace_id: string | null
-          user_id: string
-        }
-        Insert: {
-          bot_id: string
-          created_at?: string
-          executed_at?: string
-          fee?: number | null
-          fee_currency?: string | null
-          id?: string
-          liquidity?: string | null
-          order_id: string
-          price: number
-          quantity: number
-          run_id?: string | null
-          side: Database["public"]["Enums"]["order_side"]
-          symbol: string
-          trace_id?: string | null
-          user_id: string
-        }
-        Update: {
-          bot_id?: string
-          created_at?: string
-          executed_at?: string
-          fee?: number | null
-          fee_currency?: string | null
-          id?: string
-          liquidity?: string | null
-          order_id?: string
-          price?: number
-          quantity?: number
-          run_id?: string | null
-          side?: Database["public"]["Enums"]["order_side"]
-          symbol?: string
-          trace_id?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "fills_bot_id_fkey"
-            columns: ["bot_id"]
-            isOneToOne: false
-            referencedRelation: "bots"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "fills_order_id_fkey"
-            columns: ["order_id"]
-            isOneToOne: false
-            referencedRelation: "orders"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "fills_run_id_fkey"
-            columns: ["run_id"]
-            isOneToOne: false
-            referencedRelation: "runs"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       historical_candles: {
         Row: {
@@ -857,7 +749,6 @@ export type Database = {
           risk_checked: boolean
           risk_flags: Json | null
           risk_score: number | null
-          run_id: string | null
           side: Database["public"]["Enums"]["order_side"]
           signal_strength: number | null
           slippage: number | null
@@ -866,7 +757,6 @@ export type Database = {
           strategy_id: string | null
           submitted_at: string | null
           symbol: string
-          trace_id: string | null
           updated_at: string
           user_id: string
         }
@@ -889,7 +779,6 @@ export type Database = {
           risk_checked?: boolean
           risk_flags?: Json | null
           risk_score?: number | null
-          run_id?: string | null
           side: Database["public"]["Enums"]["order_side"]
           signal_strength?: number | null
           slippage?: number | null
@@ -898,7 +787,6 @@ export type Database = {
           strategy_id?: string | null
           submitted_at?: string | null
           symbol: string
-          trace_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -921,7 +809,6 @@ export type Database = {
           risk_checked?: boolean
           risk_flags?: Json | null
           risk_score?: number | null
-          run_id?: string | null
           side?: Database["public"]["Enums"]["order_side"]
           signal_strength?: number | null
           slippage?: number | null
@@ -930,7 +817,6 @@ export type Database = {
           strategy_id?: string | null
           submitted_at?: string | null
           symbol?: string
-          trace_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -940,13 +826,6 @@ export type Database = {
             columns: ["bot_id"]
             isOneToOne: false
             referencedRelation: "bots"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "orders_run_id_fkey"
-            columns: ["run_id"]
-            isOneToOne: false
-            referencedRelation: "runs"
             referencedColumns: ["id"]
           },
         ]
@@ -966,14 +845,12 @@ export type Database = {
           opened_at: string
           quantity: number
           realized_pnl: number | null
-          run_id: string | null
           side: Database["public"]["Enums"]["order_side"]
           status: Database["public"]["Enums"]["position_status"]
           stop_loss_price: number | null
           symbol: string
           take_profit_price: number | null
           total_fees: number | null
-          trace_id: string | null
           unrealized_pnl: number | null
           updated_at: string
           user_id: string
@@ -992,14 +869,12 @@ export type Database = {
           opened_at?: string
           quantity: number
           realized_pnl?: number | null
-          run_id?: string | null
           side: Database["public"]["Enums"]["order_side"]
           status?: Database["public"]["Enums"]["position_status"]
           stop_loss_price?: number | null
           symbol: string
           take_profit_price?: number | null
           total_fees?: number | null
-          trace_id?: string | null
           unrealized_pnl?: number | null
           updated_at?: string
           user_id: string
@@ -1018,14 +893,12 @@ export type Database = {
           opened_at?: string
           quantity?: number
           realized_pnl?: number | null
-          run_id?: string | null
           side?: Database["public"]["Enums"]["order_side"]
           status?: Database["public"]["Enums"]["position_status"]
           stop_loss_price?: number | null
           symbol?: string
           take_profit_price?: number | null
           total_fees?: number | null
-          trace_id?: string | null
           unrealized_pnl?: number | null
           updated_at?: string
           user_id?: string
@@ -1050,13 +923,6 @@ export type Database = {
             columns: ["exit_order_id"]
             isOneToOne: false
             referencedRelation: "orders"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "positions_run_id_fkey"
-            columns: ["run_id"]
-            isOneToOne: false
-            referencedRelation: "runs"
             referencedColumns: ["id"]
           },
         ]
@@ -1093,62 +959,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      risk_limits: {
-        Row: {
-          bot_id: string
-          cooldown_minutes: number
-          created_at: string
-          id: string
-          kill_switch_drawdown: number
-          max_consecutive_losses: number
-          max_correlation: number
-          max_daily_loss: number
-          max_leverage: number
-          max_position_size: number
-          max_trades_per_hour: number
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          bot_id: string
-          cooldown_minutes?: number
-          created_at?: string
-          id?: string
-          kill_switch_drawdown?: number
-          max_consecutive_losses?: number
-          max_correlation?: number
-          max_daily_loss?: number
-          max_leverage?: number
-          max_position_size?: number
-          max_trades_per_hour?: number
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          bot_id?: string
-          cooldown_minutes?: number
-          created_at?: string
-          id?: string
-          kill_switch_drawdown?: number
-          max_consecutive_losses?: number
-          max_correlation?: number
-          max_daily_loss?: number
-          max_leverage?: number
-          max_position_size?: number
-          max_trades_per_hour?: number
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "risk_limits_bot_id_fkey"
-            columns: ["bot_id"]
-            isOneToOne: false
-            referencedRelation: "bots"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       rl_agent_state: {
         Row: {
@@ -1192,65 +1002,6 @@ export type Database = {
         }
         Relationships: []
       }
-      runs: {
-        Row: {
-          bot_id: string | null
-          completed_at: string | null
-          created_at: string
-          id: string
-          last_tick_at: string | null
-          metadata: Json
-          requested_at: string
-          run_type: string
-          started_at: string | null
-          state: Database["public"]["Enums"]["run_state"]
-          trace_id: string
-          trigger: Database["public"]["Enums"]["run_trigger"]
-          updated_at: string
-          user_id: string | null
-        }
-        Insert: {
-          bot_id?: string | null
-          completed_at?: string | null
-          created_at?: string
-          id?: string
-          last_tick_at?: string | null
-          metadata?: Json
-          requested_at?: string
-          run_type?: string
-          started_at?: string | null
-          state?: Database["public"]["Enums"]["run_state"]
-          trace_id: string
-          trigger?: Database["public"]["Enums"]["run_trigger"]
-          updated_at?: string
-          user_id?: string | null
-        }
-        Update: {
-          bot_id?: string | null
-          completed_at?: string | null
-          created_at?: string
-          id?: string
-          last_tick_at?: string | null
-          metadata?: Json
-          requested_at?: string
-          run_type?: string
-          started_at?: string | null
-          state?: Database["public"]["Enums"]["run_state"]
-          trace_id?: string
-          trigger?: Database["public"]["Enums"]["run_trigger"]
-          updated_at?: string
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "runs_bot_id_fkey"
-            columns: ["bot_id"]
-            isOneToOne: false
-            referencedRelation: "bots"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       sentiment_data: {
         Row: {
           confidence: number | null
@@ -1292,44 +1043,6 @@ export type Database = {
           volume?: number | null
         }
         Relationships: []
-      }
-      strategy_configs: {
-        Row: {
-          bot_id: string
-          config: Json
-          created_at: string
-          id: string
-          strategy_id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          bot_id: string
-          config?: Json
-          created_at?: string
-          id?: string
-          strategy_id: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          bot_id?: string
-          config?: Json
-          created_at?: string
-          id?: string
-          strategy_id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "strategy_configs_bot_id_fkey"
-            columns: ["bot_id"]
-            isOneToOne: false
-            referencedRelation: "bots"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       test_runs: {
         Row: {
@@ -1456,8 +1169,6 @@ export type Database = {
         | "pause"
         | "resume"
         | "tick"
-        | "tick_start"
-        | "tick_end"
         | "order"
         | "fill"
         | "error"
@@ -1482,8 +1193,6 @@ export type Database = {
         | "take_profit"
         | "stop_limit"
       position_status: "open" | "closed" | "liquidated"
-      run_state: "requested" | "running" | "completed" | "failed" | "canceled"
-      run_trigger: "manual" | "scheduled" | "backtest"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1618,8 +1327,6 @@ export const Constants = {
         "pause",
         "resume",
         "tick",
-        "tick_start",
-        "tick_end",
         "order",
         "fill",
         "error",
@@ -1641,8 +1348,6 @@ export const Constants = {
       ],
       order_type: ["market", "limit", "stop_loss", "take_profit", "stop_limit"],
       position_status: ["open", "closed", "liquidated"],
-      run_state: ["requested", "running", "completed", "failed", "canceled"],
-      run_trigger: ["manual", "scheduled", "backtest"],
     },
   },
 } as const
