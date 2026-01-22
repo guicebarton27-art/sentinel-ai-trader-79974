@@ -82,6 +82,16 @@ npm run dev
 # Application runs on http://localhost:5173
 ```
 
+## ⚡ Quickstart (local)
+
+Run the full stack locally in two commands:
+```bash
+supabase start
+npm run dev:all
+```
+
+This starts the UI, edge functions, and the worker loop that triggers the tick orchestrator.
+
 ## 🚦 Usage
 
 ### Authentication
@@ -94,6 +104,8 @@ npm run dev
 - **Pause**: Temporarily halt trading (preserve positions)
 - **Stop**: Gracefully close all positions and stop
 - **Kill**: Emergency stop (immediate halt)
+- **Run 1 Tick**: Manually execute a single tick for debugging
+- **Arm Live**: Required before a live run can start
 
 ### Strategy Configuration
 1. Navigate to "Strategies" tab
@@ -144,6 +156,16 @@ supabase/
 MarketData → AI Strategy → Signal/Fallback → RiskManager → Execution → Portfolio → Reporting/Alerts
           (tick-bots)   (ai-strategy)       (shared)        (tick-bots)  (DB)       (bot_events)
 ```
+
+### Architecture: Spine + Event Log + Tick Loop
+
+The system is now wired end-to-end via a single trading spine:
+
+1. **Runs** represent a trading session and expose a state machine (`STOPPED → STARTING → RUNNING → PAUSING → PAUSED → STOPPING → STOPPED`, plus `KILL_SWITCHED`).
+2. **Tick loop** (`tick-bots`) is the only component that executes the pipeline: market fetch → strategy decision → risk gate → execution → persistence.
+3. **Events** are append-only (`bot_events`) and every significant step writes an entry with `run_id` + `trace_id` for replay/debugging.
+4. **Backtests** reuse the same strategy + risk + execution interface, swapping only the market data source and execution engine.
+5. **Live trading is locked by default**. A server-side kill switch is enabled and live runs require an explicit ARM step.
 
 Canonical decision path:
 1. `tick-bots` fetches market data (Kraken public API or deterministic fallback).
@@ -270,7 +292,8 @@ Outputs are written to `backtest-output/` (summary JSON + trades CSV). Use envir
 ### Enable live trading (explicit opt-in)
 1. Set `LIVE_TRADING_ENABLED=true` and `KILL_SWITCH_ENABLED=false`.
 2. Add exchange API keys in the UI (stored server-side).
-3. Start a bot in **Live** mode. The kill switch and risk limits remain enforced.
+3. **Arm Live** in the bot controls.
+4. Start a bot in **Live** mode. The kill switch and risk limits remain enforced.
 
 ### Health & Observability
 Use the `health` edge function to check scheduler status, error counts, and bot health:

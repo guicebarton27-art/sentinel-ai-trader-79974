@@ -34,6 +34,7 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
   const { 
     bots, 
     activeBot, 
+    activeRun,
     positions,
     health,
     loading, 
@@ -45,6 +46,8 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
     pauseBot,
     stopBot,
     killBot,
+    armLive,
+    runOneTick,
     updateBot,
     deleteBot
   } = useBotController();
@@ -64,6 +67,9 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
   const [startingCapital, setStartingCapital] = useState(10000);
 
   const botStatus = activeBot?.status || 'stopped';
+  const runStatus = activeRun?.status || 'STOPPED';
+  const runLastTick = activeRun?.last_tick_at ? new Date(activeRun.last_tick_at).toLocaleString() : 'Never';
+  const liveArmed = Boolean(activeRun?.config_json && (activeRun.config_json as { live_armed?: boolean }).live_armed);
 
   // Sync status changes with parent if callback provided
   useEffect(() => {
@@ -169,6 +175,40 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
       });
     }
   }, [activeBot, killBot, toast]);
+
+  const handleArmLive = useCallback(async () => {
+    if (!activeBot) return;
+    try {
+      await armLive(activeBot.id);
+      toast({
+        title: 'Live Trading Armed',
+        description: 'Live mode is armed for this run. Start the bot to trade live.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: 'Failed to arm live trading',
+        variant: 'destructive',
+      });
+    }
+  }, [activeBot, armLive, toast]);
+
+  const handleRunOneTick = useCallback(async () => {
+    if (!activeBot) return;
+    try {
+      await runOneTick(activeBot.id);
+      toast({
+        title: 'Tick Executed',
+        description: 'One manual tick executed.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: 'Failed to run a manual tick',
+        variant: 'destructive',
+      });
+    }
+  }, [activeBot, runOneTick, toast]);
 
   const handleDeleteBot = useCallback(async () => {
     if (!activeBot) return;
@@ -396,6 +436,15 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
                     <Play className="h-4 w-4" />
                     Start Bot
                   </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleRunOneTick}
+                    className="flex items-center gap-2"
+                    disabled={!activeRun || runStatus === 'KILL_SWITCHED'}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Run 1 Tick
+                  </Button>
                   <Button 
                     variant="secondary"
                     onClick={handlePauseBot} 
@@ -414,10 +463,32 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
                     <Square className="h-4 w-4" />
                     Stop Bot
                   </Button>
+                  {activeBot.mode === 'live' && (
+                    <Button
+                      variant={liveArmed ? 'secondary' : 'default'}
+                      onClick={handleArmLive}
+                      disabled={liveArmed}
+                      className="flex items-center gap-2"
+                    >
+                      <Shield className="h-4 w-4" />
+                      {liveArmed ? 'Live Armed' : 'Arm Live'}
+                    </Button>
+                  )}
                 </div>
               </div>
 
               <Separator />
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Run Status</span>
+                  <span className="font-medium">{runStatus}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Last Tick</span>
+                  <span className="font-medium">{runLastTick}</span>
+                </div>
+              </div>
 
               <div className="space-y-4">
                 <h4 className="font-medium flex items-center gap-2">

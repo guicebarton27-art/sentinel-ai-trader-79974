@@ -2,8 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 import { requireEnv } from "../_shared/env.ts";
-import { logError, logInfo, logWarn } from "../_shared/logging.ts";
-import { MarketCandle } from "../_shared/trading.ts";
+import { logError, logInfo } from "../_shared/logging.ts";
+import { MarketCandle, MarketTick, evaluateRisk, RiskInputs } from "../_shared/trading.ts";
+import { createTraceId, selectStrategyDecision } from "../_shared/spine.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -68,6 +69,20 @@ interface AuthResult {
   isService?: boolean;
 }
 
+interface BacktestPosition {
+  side: 'buy' | 'sell';
+  entry_price: number;
+  entry_timestamp: number;
+  size: number;
+}
+
+interface EventRecord {
+  event_type: string;
+  message: string;
+  severity?: string;
+  payload?: Record<string, unknown>;
+}
+
 // Authenticate user and check role
 async function authenticateUser(req: Request): Promise<AuthResult> {
   const authHeader = req.headers.get('Authorization');
@@ -113,300 +128,26 @@ async function authenticateUser(req: Request): Promise<AuthResult> {
   return { user: { id: user.id, email: user.email ?? 'unknown' }, role };
 }
 
-// Calculate technical indicators
-function calculateSMA(candles: MarketCandle[], period: number): number[] {
-  const sma: number[] = [];
-  for (let i = 0; i < candles.length; i++) {
-    if (i < period - 1) {
-      sma.push(NaN);
-    } else {
-      const sum = candles.slice(i - period + 1, i + 1).reduce((acc, c) => acc + c.close, 0);
-      sma.push(sum / period);
-    }
-  }
-  return sma;
-}
+const normalizePercent = (value: number) => (value <= 1 ? value * 100 : value);
 
-function calculateRSI(candles: MarketCandle[], period: number = 14): number[] {
-  const rsi: number[] = [];
-  const gains: number[] = [];
-  const losses: number[] = [];
-
-  for (let i = 1; i < candles.length; i++) {
-    const change = candles[i].close - candles[i - 1].close;
-    gains.push(change > 0 ? change : 0);
-    losses.push(change < 0 ? -change : 0);
-  }
-
-  for (let i = 0; i < candles.length; i++) {
-    if (i < period) {
-      rsi.push(NaN);
-    } else {
-      const avgGain = gains.slice(i - period, i).reduce((a, b) => a + b, 0) / period;
-      const avgLoss = losses.slice(i - period, i).reduce((a, b) => a + b, 0) / period;
-      const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-      rsi.push(100 - (100 / (1 + rs)));
-    }
-  }
-  return rsi;
-}
-
-// Generate trading signal
-function generateSignal(candles: MarketCandle[], index: number, config: StrategyConfig): number {
-  if (index < 50) return 0; // Need enough data for indicators
-
-  const sma20 = calculateSMA(candles.slice(0, index + 1), 20);
-  const sma50 = calculateSMA(candles.slice(0, index + 1), 50);
-  const rsi = calculateRSI(candles.slice(0, index + 1), 14);
-
-  const currentSMA20 = sma20[sma20.length - 1];
-  const currentSMA50 = sma50[sma50.length - 1];
-  const currentRSI = rsi[rsi.length - 1];
-  const currentPrice = candles[index].close;
-
-  // Trend component
-  const trendSignal = (currentSMA20 - currentSMA50) / currentSMA50;
-
-  // Mean reversion component
-  const meanRevSignal = (currentSMA20 - currentPrice) / currentPrice;
-
-  // Momentum component (RSI-based)
-  const momentumSignal = (currentRSI - 50) / 50;
-
-  // Combined signal
-  const signal = 
-    config.trendWeight * trendSignal +
-    config.meanRevWeight * meanRevSignal +
-    config.carryWeight * momentumSignal;
-
-  return signal;
-}
-
-// Run backtest
-function runBacktest(candles: MarketCandle[], config: StrategyConfig, initialCapital: number) {
-  const trades: Trade[] = [];
-  const equityCurve: { timestamp: number; equity: number; drawdown: number }[] = [];
-  
-  let capital = initialCapital;
-  let position: { side: 'long' | 'short'; entry_price: number; entry_timestamp: number; size: number; signal: number } | null = null;
-  let peakEquity = initialCapital;
-
-  for (let i = 50; i < candles.length; i++) {
-    const candle = candles[i];
-    const signal = generateSignal(candles, i, config);
-
-    // Record equity
-    const currentEquity = position 
-      ? capital + (position.side === 'long' 
-          ? position.size * (candle.close - position.entry_price)
-          : position.size * (position.entry_price - candle.close))
-      : capital;
-    
-    peakEquity = Math.max(peakEquity, currentEquity);
-    const drawdown = ((peakEquity - currentEquity) / peakEquity) * 100;
-    
-    equityCurve.push({ timestamp: candle.timestamp, equity: currentEquity, drawdown });
-
-    // Exit logic
-    if (position) {
-      const priceChange = position.side === 'long' 
-        ? (candle.close - position.entry_price) / position.entry_price
-        : (position.entry_price - candle.close) / position.entry_price;
-
-      const shouldExit = 
-        priceChange <= -config.stopLoss ||
-        priceChange >= config.takeProfit ||
-        (position.side === 'long' && signal < -config.signalThreshold) ||
-        (position.side === 'short' && signal > config.signalThreshold);
-
-      if (shouldExit) {
-        const pnl = position.side === 'long'
-          ? position.size * (candle.close - position.entry_price)
-          : position.size * (position.entry_price - candle.close);
-        
-        const pnlPercentage = (pnl / (position.entry_price * position.size)) * 100;
-        
-        capital += pnl;
-
-        trades.push({
-          entry_timestamp: position.entry_timestamp,
-          exit_timestamp: candle.timestamp,
-          side: position.side,
-          entry_price: position.entry_price,
-          exit_price: candle.close,
-          size: position.size,
-          pnl,
-          pnl_percentage: pnlPercentage,
-          signal_strength: position.signal,
-        });
-
-        position = null;
-      }
-    }
-
-    // Entry logic
-    if (!position) {
-      if (signal > config.signalThreshold) {
-        const positionSize = Math.min(capital * config.maxPositionSize, capital * 0.95) / candle.close;
-        position = {
-          side: 'long',
-          entry_price: candle.close,
-          entry_timestamp: candle.timestamp,
-          size: positionSize,
-          signal,
-        };
-      } else if (signal < -config.signalThreshold) {
-        const positionSize = Math.min(capital * config.maxPositionSize, capital * 0.95) / candle.close;
-        position = {
-          side: 'short',
-          entry_price: candle.close,
-          entry_timestamp: candle.timestamp,
-          size: positionSize,
-          signal,
-        };
-      }
-    }
-  }
-
-  // Close any open position
-  if (position) {
-    const lastCandle = candles[candles.length - 1];
-    const pnl = position.side === 'long'
-      ? position.size * (lastCandle.close - position.entry_price)
-      : position.size * (position.entry_price - lastCandle.close);
-    
-    capital += pnl;
-
-    trades.push({
-      entry_timestamp: position.entry_timestamp,
-      exit_timestamp: lastCandle.timestamp,
-      side: position.side,
-      entry_price: position.entry_price,
-      exit_price: lastCandle.close,
-      size: position.size,
-      pnl,
-      pnl_percentage: (pnl / (position.entry_price * position.size)) * 100,
-      signal_strength: position.signal,
-    });
-  }
-
-  return { trades, equityCurve, finalCapital: capital };
-}
-
-// Calculate performance metrics
-function calculateMetrics(trades: Trade[], initialCapital: number, finalCapital: number, equityCurve: any[]) {
-  const winningTrades = trades.filter(t => t.pnl > 0);
-  const losingTrades = trades.filter(t => t.pnl < 0);
-  
-  const totalReturn = ((finalCapital - initialCapital) / initialCapital) * 100;
-  const winRate = trades.length > 0 ? (winningTrades.length / trades.length) * 100 : 0;
-  
-  const avgWin = winningTrades.length > 0
-    ? winningTrades.reduce((sum, t) => sum + t.pnl, 0) / winningTrades.length
-    : 0;
-  
-  const avgLoss = losingTrades.length > 0
-    ? Math.abs(losingTrades.reduce((sum, t) => sum + t.pnl, 0) / losingTrades.length)
-    : 0;
-  
-  const profitFactor = avgLoss > 0 ? (avgWin * winningTrades.length) / (avgLoss * losingTrades.length) : 0;
-  
-  const maxDrawdown = Math.max(...equityCurve.map(e => e.drawdown));
-  
-  // Calculate Sharpe ratio (simplified, assuming daily returns)
-  const returns = trades.map(t => t.pnl_percentage);
-  const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
-  const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length);
-  const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
-  
-  // Sortino ratio (only downside deviation)
-  const downsideReturns = returns.filter(r => r < 0);
-  const downsideStdDev = downsideReturns.length > 0
-    ? Math.sqrt(downsideReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / downsideReturns.length)
-    : 0;
-  const sortinoRatio = downsideStdDev > 0 ? (avgReturn / downsideStdDev) * Math.sqrt(252) : 0;
-
-  // Calculate Calmar Ratio (annualized return / max drawdown)
-  const calmarRatio = maxDrawdown > 0 ? (totalReturn / maxDrawdown) : 0;
-  
-  // Calculate Omega Ratio (sum of gains / sum of losses)
-  const totalGains = winningTrades.reduce((sum, t) => sum + t.pnl, 0);
-  const totalLosses = Math.abs(losingTrades.reduce((sum, t) => sum + t.pnl, 0));
-  const omegaRatio = totalLosses > 0 ? totalGains / totalLosses : 0;
-  
-  // Calculate Expectancy (average win * win rate - average loss * loss rate)
-  const expectancy = (avgWin * winRate) - (Math.abs(avgLoss) * (1 - winRate));
-
+const buildMarketTick = (symbol: string, candle: MarketCandle, prev?: MarketCandle): MarketTick => {
+  const change = prev ? ((candle.close - prev.close) / prev.close) * 100 : 0;
   return {
-    total_return: totalReturn,
-    sharpe_ratio: sharpeRatio,
-    sortino_ratio: sortinoRatio,
-    max_drawdown: maxDrawdown,
-    win_rate: winRate,
-    total_trades: trades.length,
-    winning_trades: winningTrades.length,
-    losing_trades: losingTrades.length,
-    profit_factor: profitFactor,
-    avg_win: avgWin,
-    avg_loss: avgLoss,
-    calmar_ratio: calmarRatio,
-    omega_ratio: omegaRatio,
-    expectancy: expectancy,
-  };
-}
-
-const mulberry32 = (seed: number) => {
-  let t = seed;
-  return () => {
-    t += 0x6D2B79F5;
-    let r = Math.imul(t ^ (t >>> 15), t | 1);
-    r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    symbol,
+    price: candle.close,
+    bid: candle.close,
+    ask: candle.close,
+    volume_24h: candle.volume,
+    change_24h: change,
   };
 };
 
-const generateSyntheticCandles = (
-  startTimestamp: number,
-  endTimestamp: number,
-  intervalSeconds: number,
-  seed: number
-): MarketCandle[] => {
-  const rng = mulberry32(seed);
-  const candles: MarketCandle[] = [];
-  let price = 50000;
-
-  for (let timestamp = startTimestamp; timestamp <= endTimestamp; timestamp += intervalSeconds) {
-    const drift = (rng() - 0.5) * 200;
-    const open = price;
-    const close = Math.max(100, price + drift);
-    const high = Math.max(open, close) + rng() * 50;
-    const low = Math.min(open, close) - rng() * 50;
-    const volume = 100 + rng() * 50;
-    price = close;
-
-    candles.push({
-      timestamp,
-      open,
-      high,
-      low,
-      close,
-      volume,
-    });
-  }
-
-  return candles;
-};
-
-const intervalToSeconds: Record<string, number> = {
-  '1m': 60,
-  '5m': 300,
-  '15m': 900,
-  '30m': 1800,
-  '1h': 3600,
-  '4h': 14400,
-  '1d': 86400,
-  '1w': 604800,
-};
+const createEvent = (event: EventRecord) => ({
+  event_type: event.event_type,
+  message: event.message,
+  severity: event.severity ?? 'info',
+  payload: event.payload ?? {},
+});
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -414,47 +155,21 @@ serve(async (req) => {
   }
 
   try {
-    // Authenticate user and verify role
-    const { user, role, isService } = await authenticateUser(req);
-    logInfo({
-      component: 'run-backtest',
-      message: 'Backtest request received',
-      context: { user_id: user.id, role, service: isService ?? false },
-    });
-
-    // Parse and validate input
-    const rawInput = await req.json();
-    const parseResult = BacktestSchema.safeParse(rawInput);
-    
-    if (!parseResult.success) {
-      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
-      logWarn({
-        component: 'run-backtest',
-        message: 'Validation error',
-        context: { error: errorMessage },
-      });
-      return new Response(
-        JSON.stringify({ error: 'Invalid input', details: errorMessage }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const { name, symbol, interval, startTimestamp, endTimestamp, initialCapital, strategyConfig, seed } = parseResult.data;
-    const seedValue = seed ?? 42;
-
-    logInfo({
-      component: 'run-backtest',
-      message: 'Running backtest',
-      context: { name, symbol, interval, startTimestamp, endTimestamp, seed: seedValue },
-    });
-
-    // Initialize Supabase client with service role for data access
+    const { user, isService } = await authenticateUser(req);
     const supabaseUrl = requireEnv('SUPABASE_URL');
-    const supabaseKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = isService
+      ? createClient(supabaseUrl, requireEnv('SUPABASE_SERVICE_ROLE_KEY'))
+      : createClient(supabaseUrl, requireEnv('SUPABASE_ANON_KEY'), {
+        global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } }
+      });
 
-    // Fetch historical data
-    const { data: candles, error: fetchError } = await supabase
+    const body = await req.json();
+    const input = BacktestSchema.parse(body);
+    const { name, symbol, interval, startTimestamp, endTimestamp, initialCapital, strategyConfig } = input;
+
+    logInfo({ component: 'run-backtest', message: 'Starting backtest', context: { symbol, interval } });
+
+    const { data: candlesData, error: candlesError } = await supabase
       .from('historical_candles')
       .select('*')
       .eq('symbol', symbol)
@@ -463,46 +178,291 @@ serve(async (req) => {
       .lte('timestamp', endTimestamp)
       .order('timestamp', { ascending: true });
 
-    if (fetchError) throw fetchError;
-    
-    let backtestCandles = candles as MarketCandle[] | null;
-    let syntheticDataUsed = false;
+    if (candlesError) throw candlesError;
+    if (!candlesData || candlesData.length === 0) {
+      throw new Error('No data found for the selected range. Please fetch historical data first.');
+    }
 
-    if (!backtestCandles || backtestCandles.length === 0) {
-      const intervalSeconds = intervalToSeconds[interval] ?? 60;
-      backtestCandles = generateSyntheticCandles(startTimestamp, endTimestamp, intervalSeconds, seedValue);
-      syntheticDataUsed = true;
-      logWarn({
-        component: 'run-backtest',
-        message: 'No historical data found; using synthetic candles',
-        context: { symbol, interval, count: backtestCandles.length },
+    const candles = candlesData as MarketCandle[];
+
+    const runConfig = {
+      ai_enabled: false,
+      ai_confidence_threshold: 0.55,
+      live_armed: false,
+      strategy_config: strategyConfig,
+      symbol,
+      interval,
+      initial_capital: initialCapital,
+    };
+
+    const { data: run, error: runError } = await supabase
+      .from('runs')
+      .insert({
+        user_id: user.id,
+        status: 'RUNNING',
+        mode: 'backtest',
+        config_json: runConfig,
+      })
+      .select()
+      .single();
+
+    if (runError || !run) throw runError ?? new Error('Failed to create run');
+
+    const { data: riskLimits } = await supabase
+      .from('risk_limits')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const bot = {
+      user_id: user.id,
+      symbol,
+      current_capital: initialCapital,
+      daily_pnl: 0,
+      strategy_id: 'trend_following',
+      strategy_config: {},
+      max_position_size: strategyConfig.maxPositionSize,
+      max_daily_loss: initialCapital * 0.05,
+      stop_loss_pct: normalizePercent(strategyConfig.stopLoss),
+      take_profit_pct: normalizePercent(strategyConfig.takeProfit),
+      max_leverage: 1,
+    };
+
+    let capital = initialCapital;
+    let position: BacktestPosition | null = null;
+    let peakEquity = initialCapital;
+    let maxDrawdown = 0;
+    const trades: Trade[] = [];
+    const equityCurve: { timestamp: number; equity: number; drawdown: number }[] = [];
+    const tradeTimestamps: number[] = [];
+
+    for (let i = 1; i < candles.length; i++) {
+      const candle = candles[i];
+      const prev = candles[i - 1];
+      const traceId = createTraceId();
+      const marketTick = buildMarketTick(symbol, candle, prev);
+
+      await supabase.from('market_snapshots').insert([{
+        run_id: run.id,
+        user_id: user.id,
+        symbol,
+        timeframe: interval,
+        source: 'historical',
+        data_json: marketTick,
+      }] as unknown[]);
+
+      const decisionResult = selectStrategyDecision(
+        {
+          ...bot,
+          current_capital: capital,
+          daily_pnl: capital - initialCapital,
+        },
+        marketTick,
+        traceId,
+        null,
+        0.55,
+      );
+
+      await supabase.from('strategy_decisions').insert([{
+        run_id: run.id,
+        trace_id: traceId,
+        user_id: user.id,
+        symbol,
+        signal: decisionResult.decision ? decisionResult.decision.side : 'hold',
+        confidence: decisionResult.decision?.confidence ?? 0,
+        rationale: decisionResult.rationale,
+        inputs_json: { source: decisionResult.source },
+      }] as unknown[]);
+
+      const events: EventRecord[] = [
+        createEvent({
+          event_type: 'tick',
+          message: 'Backtest tick',
+          payload: { trace_id: traceId, price: marketTick.price },
+        }),
+      ];
+
+      if (decisionResult.decision && !position) {
+        const nowTimestamp = candle.timestamp;
+        const tradesLastHour = tradeTimestamps.filter((ts) => ts >= nowTimestamp - 3600).length;
+        const riskInputs: RiskInputs = {
+          currentCapital: capital,
+          dailyPnl: capital - initialCapital,
+          maxDailyLoss: riskLimits?.max_daily_loss ?? bot.max_daily_loss,
+          maxPositionSize: riskLimits?.max_position ?? bot.max_position_size,
+          stopLossPct: bot.stop_loss_pct,
+          tradesLastHour,
+          maxTradesPerHour: riskLimits?.max_trades_per_hour ?? 5,
+          cooldownActive: false,
+          lossStreakExceeded: false,
+          killSwitchActive: false,
+          liveTradingEnabled: false,
+          mode: 'backtest',
+        };
+
+        const riskCheck = evaluateRisk(decisionResult.decision, riskInputs);
+
+        if (riskCheck.allowed) {
+          const orderId = crypto.randomUUID();
+          await supabase.from('orders').insert([{
+            id: orderId,
+            bot_id: null,
+            user_id: user.id,
+            run_id: run.id,
+            trace_id: traceId,
+            client_order_id: `backtest_${run.id}_${traceId}`,
+            symbol,
+            side: decisionResult.decision.side,
+            order_type: 'market',
+            status: 'filled',
+            quantity: decisionResult.decision.size,
+            filled_quantity: decisionResult.decision.size,
+            average_fill_price: decisionResult.decision.entry,
+            fee: decisionResult.decision.size * decisionResult.decision.entry * 0.001,
+            strategy_id: bot.strategy_id,
+            reason: decisionResult.decision.rationale,
+            risk_checked: true,
+            risk_flags: { trace_id: traceId },
+            submitted_at: new Date(candle.timestamp * 1000).toISOString(),
+            filled_at: new Date(candle.timestamp * 1000).toISOString(),
+            meta_json: { mode: 'backtest' },
+          }] as unknown[]);
+
+          await supabase.from('fills').insert([{
+            order_id: orderId,
+            run_id: run.id,
+            user_id: user.id,
+            price: decisionResult.decision.entry,
+            qty: decisionResult.decision.size,
+            fee: decisionResult.decision.size * decisionResult.decision.entry * 0.001,
+            meta_json: { mode: 'backtest' },
+          }] as unknown[]);
+
+          await supabase.from('positions').insert([{
+            bot_id: null,
+            user_id: user.id,
+            run_id: run.id,
+            symbol,
+            side: decisionResult.decision.side,
+            status: 'open',
+            quantity: decisionResult.decision.size,
+            entry_price: decisionResult.decision.entry,
+            avg_price: decisionResult.decision.entry,
+            current_price: decisionResult.decision.entry,
+            stop_loss_price: decisionResult.decision.stop,
+            take_profit_price: decisionResult.decision.take_profit,
+            total_fees: decisionResult.decision.size * decisionResult.decision.entry * 0.001,
+            entry_order_id: orderId,
+            opened_at: new Date(candle.timestamp * 1000).toISOString(),
+            meta_json: { trace_id: traceId, mode: 'backtest' },
+          }] as unknown[]);
+
+          position = {
+            side: decisionResult.decision.side,
+            entry_price: decisionResult.decision.entry,
+            entry_timestamp: candle.timestamp,
+            size: decisionResult.decision.size,
+          };
+          tradeTimestamps.push(candle.timestamp);
+          events.push(createEvent({
+            event_type: 'order',
+            message: `Backtest ${decisionResult.decision.side} order executed`,
+            payload: { trace_id: traceId, price: decisionResult.decision.entry },
+          }));
+        } else {
+          events.push(createEvent({
+            event_type: 'risk_alert',
+            severity: 'warn',
+            message: `Order blocked: ${riskCheck.flags.join(', ')}`,
+            payload: { trace_id: traceId, flags: riskCheck.flags },
+          }));
+        }
+      } else if (position && decisionResult.decision) {
+        const exitPrice = decisionResult.decision.entry;
+        const pnl = position.side === 'buy'
+          ? (exitPrice - position.entry_price) * position.size
+          : (position.entry_price - exitPrice) * position.size;
+        capital += pnl;
+
+        trades.push({
+          entry_timestamp: position.entry_timestamp,
+          exit_timestamp: candle.timestamp,
+          side: position.side === 'buy' ? 'long' : 'short',
+          entry_price: position.entry_price,
+          exit_price: exitPrice,
+          size: position.size,
+          pnl,
+          pnl_percentage: (pnl / (position.entry_price * position.size)) * 100,
+          signal_strength: decisionResult.decision.confidence,
+        });
+
+        await supabase.from('positions')
+          .update({
+            status: 'closed',
+            exit_price: exitPrice,
+            realized_pnl: pnl,
+            closed_at: new Date(candle.timestamp * 1000).toISOString(),
+          } as unknown)
+          .eq('run_id', run.id)
+          .eq('status', 'open');
+
+        position = null;
+        events.push(createEvent({
+          event_type: 'fill',
+          message: 'Backtest position closed',
+          payload: { trace_id: traceId, pnl },
+        }));
+      }
+
+      const equity = position
+        ? capital + (marketTick.price - position.entry_price) * position.size
+        : capital;
+      peakEquity = Math.max(peakEquity, equity);
+      const drawdown = peakEquity > 0 ? ((peakEquity - equity) / peakEquity) * 100 : 0;
+      maxDrawdown = Math.max(maxDrawdown, drawdown);
+      equityCurve.push({ timestamp: candle.timestamp, equity, drawdown });
+
+      await supabase.from('bot_events').insert(events.map((event) => ({
+        bot_id: null,
+        user_id: user.id,
+        run_id: run.id,
+        trace_id: traceId,
+        event_type: event.event_type,
+        severity: event.severity ?? 'info',
+        message: event.message,
+        payload: event.payload ?? {},
+        payload_json: event.payload ?? {},
+        created_at: new Date(candle.timestamp * 1000).toISOString(),
+      })) as unknown[]);
+    }
+
+    if (position) {
+      const lastCandle = candles[candles.length - 1];
+      const exitPrice = lastCandle.close;
+      const pnl = position.side === 'buy'
+        ? (exitPrice - position.entry_price) * position.size
+        : (position.entry_price - exitPrice) * position.size;
+      capital += pnl;
+      trades.push({
+        entry_timestamp: position.entry_timestamp,
+        exit_timestamp: lastCandle.timestamp,
+        side: position.side === 'buy' ? 'long' : 'short',
+        entry_price: position.entry_price,
+        exit_price: exitPrice,
+        size: position.size,
+        pnl,
+        pnl_percentage: (pnl / (position.entry_price * position.size)) * 100,
+        signal_strength: 1,
       });
     }
 
-    logInfo({
-      component: 'run-backtest',
-      message: 'Loaded candles for backtest',
-      context: { count: backtestCandles.length, synthetic: syntheticDataUsed },
-    });
+    const totalTrades = trades.length;
+    const winningTrades = trades.filter((trade) => trade.pnl > 0).length;
+    const losingTrades = totalTrades - winningTrades;
+    const totalReturn = ((capital - initialCapital) / initialCapital) * 100;
+    const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
 
-    // Run backtest
-    const { trades, equityCurve, finalCapital } = runBacktest(
-      backtestCandles,
-      strategyConfig,
-      initialCapital
-    );
-
-    logInfo({
-      component: 'run-backtest',
-      message: 'Backtest complete',
-      context: { trades: trades.length, finalCapital },
-    });
-
-    // Calculate metrics
-    const metrics = calculateMetrics(trades, initialCapital, finalCapital, equityCurve);
-
-    // Store backtest run
-    const { data: backtestRun, error: runError } = await supabase
+    const { data: backtestRun, error: backtestRunError } = await supabase
       .from('backtest_runs')
       .insert({
         name,
@@ -511,75 +471,78 @@ serve(async (req) => {
         start_timestamp: startTimestamp,
         end_timestamp: endTimestamp,
         initial_capital: initialCapital,
-        final_capital: finalCapital,
-        ...metrics,
-        strategy_config: { ...strategyConfig, seed: seedValue },
+        final_capital: capital,
+        total_return: totalReturn,
+        max_drawdown: maxDrawdown,
+        win_rate: winRate,
+        total_trades: totalTrades,
+        winning_trades: winningTrades,
+        losing_trades: losingTrades,
+        strategy_config: strategyConfig,
+        status: 'completed',
       })
       .select()
       .single();
 
-    if (runError) throw runError;
+    if (backtestRunError) throw backtestRunError;
 
-    // Store trades
     if (trades.length > 0) {
-      const tradesWithRunId = trades.map(trade => ({
-        ...trade,
-        backtest_run_id: backtestRun.id,
-      }));
-
-      const { error: tradesError } = await supabase
+      await supabase
         .from('backtest_trades')
-        .insert(tradesWithRunId);
-
-      if (tradesError) throw tradesError;
+        .insert(trades.map((trade) => ({
+          backtest_run_id: backtestRun.id,
+          entry_timestamp: trade.entry_timestamp,
+          exit_timestamp: trade.exit_timestamp,
+          side: trade.side,
+          entry_price: trade.entry_price,
+          exit_price: trade.exit_price,
+          size: trade.size,
+          pnl: trade.pnl,
+          pnl_percentage: trade.pnl_percentage,
+          signal_strength: trade.signal_strength,
+        })) as unknown[]);
     }
 
-    // Store equity curve (sample every 100 points to reduce storage)
-    const sampledEquityCurve = equityCurve.filter((_, i) => i % Math.max(1, Math.floor(equityCurve.length / 1000)) === 0);
-    if (sampledEquityCurve.length > 0) {
-      const equityCurveWithRunId = sampledEquityCurve.map(point => ({
-        ...point,
-        backtest_run_id: backtestRun.id,
-      }));
-
-      const { error: equityError } = await supabase
+    if (equityCurve.length > 0) {
+      await supabase
         .from('backtest_equity_curve')
-        .insert(equityCurveWithRunId);
-
-      if (equityError) throw equityError;
+        .insert(equityCurve.map((point) => ({
+          backtest_run_id: backtestRun.id,
+          timestamp: point.timestamp,
+          equity: point.equity,
+          drawdown: point.drawdown,
+        })) as unknown[]);
     }
 
-    return new Response(
-      JSON.stringify({ 
-        success: true,
-        backtest_run_id: backtestRun.id,
-        metrics,
-        trades_count: trades.length,
-        synthetic_data_used: syntheticDataUsed,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    await supabase
+      .from('runs')
+      .update({
+        status: 'STOPPED',
+        last_tick_at: new Date().toISOString(),
+        config_json: {
+          ...runConfig,
+          final_capital: capital,
+          total_return: totalReturn,
+          total_trades: totalTrades,
+        }
+      })
+      .eq('id', run.id);
 
-  } catch (error: any) {
-    logError({
-      component: 'run-backtest',
-      message: 'Error running backtest',
-      context: { error: error.message },
+    return new Response(JSON.stringify({
+      backtest_run_id: backtestRun.id,
+      run_id: run.id,
+      trades_count: totalTrades,
+      final_capital: capital,
+      total_return: totalReturn,
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
-    
-    // Return user-friendly error messages
-    const isAuthError = error.message?.includes('authorization') || 
-                        error.message?.includes('token') || 
-                        error.message?.includes('permission');
-    
-    return new Response(
-      JSON.stringify({ 
-        error: isAuthError ? error.message : 'Failed to run backtest. Please try again.' 
-      }),
-      { 
-        status: isAuthError ? 401 : 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+  } catch (err: unknown) {
+    const error = err as Error;
+    logError({ component: 'run-backtest', message: 'Backtest error', context: { error: error.message } });
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 });
