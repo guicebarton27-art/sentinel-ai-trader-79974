@@ -30,7 +30,7 @@
     "type-check": "tsc --noEmit",
     "worker": "node scripts/worker.js",
     "backtest": "node scripts/backtest.js",
-    "test": "deno test --allow-env --allow-read supabase/functions/_shared",
+    "test": "node scripts/run-deno-tests.js",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "clean": "rm -rf dist node_modules",
     "audit:fix": "npm audit fix"
