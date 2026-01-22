@@ -267,10 +267,19 @@ npm run backtest
 ```
 Outputs are written to `backtest-output/` (summary JSON + trades CSV). Use environment variables in `.env` to customize the run window and strategy parameters.
 
-### Enable live trading (explicit opt-in)
-1. Set `LIVE_TRADING_ENABLED=true` and `KILL_SWITCH_ENABLED=false`.
-2. Add exchange API keys in the UI (stored server-side).
-3. Start a bot in **Live** mode. The kill switch and risk limits remain enforced.
+### Enabling LIVE (Kraken) safely
+1. Set secrets in `.env` (server-side only):
+   - `LIVE_TRADING_ENABLED=true`
+   - `KILL_SWITCH_ENABLED=false`
+   - `API_ENCRYPTION_KEY=...`
+   - `LIVE_ARM_COOLDOWN_SECONDS=60` (default)
+2. Add Kraken API keys in the UI (keys are encrypted server-side).
+3. Run **Connectivity Check** in the Live Controls panel.
+4. Start the bot in **Live** mode.
+5. Click **ARM LIVE**, confirm the one-time token, and wait for the cooldown timer to expire before the first trade.
+6. Use the **Kill Switch** button to instantly halt live trading.
+
+**Risk warning**: Always verify strategies in paper mode first. LIVE trades are gated by risk limits, market-data freshness checks, AI confidence thresholds, and a circuit breaker that activates the kill switch after repeated failures.
 
 ### Health & Observability
 Use the `health` edge function to check scheduler status, error counts, and bot health:

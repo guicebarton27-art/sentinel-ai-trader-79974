@@ -38,6 +38,7 @@ Deno.test("evaluateRisk blocks trades when limits are exceeded", () => {
     dailyPnl: -200,
     maxDailyLoss: 100,
     maxPositionSize: 0.1,
+    maxLeverage: 1,
     stopLossPct: 0,
     tradesLastHour: 10,
     maxTradesPerHour: 5,
@@ -45,6 +46,8 @@ Deno.test("evaluateRisk blocks trades when limits are exceeded", () => {
     lossStreakExceeded: true,
     killSwitchActive: true,
     liveTradingEnabled: false,
+    marketDataFresh: false,
+    aiConfidenceOk: false,
     mode: "live",
   });
 
