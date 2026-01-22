@@ -643,6 +643,150 @@ serve(async (req) => {
       );
     }
 
+    // Automated execution with optional auto-hedging
+    if (action === 'auto_execute') {
+      const { opportunity, config: execConfig } = body;
+
+      if (!opportunity) {
+        throw new Error('Opportunity data required for auto-execution');
+      }
+
+      const maxPositionSize = execConfig?.maxPositionSize || 10000;
+      const autoHedge = execConfig?.autoHedge ?? true;
+      const hedgeMinFundingCapture = execConfig?.hedgeMinFundingCapture || 5;
+
+      console.log(`Auto-executing opportunity: ${opportunity.symbol} ${opportunity.type}`);
+
+      // First, store the opportunity in DB to get an ID
+      const opportunityRecord = {
+        user_id: user.id,
+        opportunity_type: opportunity.type,
+        exchanges: opportunity.exchanges,
+        symbol: opportunity.symbol,
+        buy_exchange: opportunity.buyExchange,
+        sell_exchange: opportunity.sellExchange,
+        buy_price: opportunity.buyPrice,
+        sell_price: opportunity.sellPrice,
+        spread_percentage: opportunity.spreadPercentage,
+        estimated_profit: opportunity.estimatedProfit,
+        volume_available: Math.min(opportunity.volumeAvailable, maxPositionSize / opportunity.buyPrice),
+        fees_estimate: opportunity.feesEstimate,
+        net_profit: opportunity.netProfit,
+        status: 'executing',
+        executed_at: new Date().toISOString(),
+        funding_rate_data: opportunity.fundingData || {},
+        hedge_details: opportunity.hedgeRecommendation || {},
+      };
+
+      const { data: storedOpp, error: insertError } = await supabase
+        .from('arbitrage_opportunities')
+        .insert(opportunityRecord)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Failed to store opportunity:', insertError);
+        throw new Error('Failed to store opportunity for execution');
+      }
+
+      // Simulate execution with realistic slippage and timing
+      const slippageFactor = 0.9 + Math.random() * 0.2; // 90% to 110% of expected
+      const executionTimeMs = 50 + Math.random() * 200;
+      
+      const executionResult = {
+        buyOrderId: crypto.randomUUID(),
+        sellOrderId: crypto.randomUUID(),
+        buyFillPrice: opportunity.buyPrice * (1 + (Math.random() - 0.5) * 0.001),
+        sellFillPrice: opportunity.sellPrice * (1 + (Math.random() - 0.5) * 0.001),
+        slippage: (slippageFactor - 1) * 100,
+        actualProfit: opportunity.netProfit * slippageFactor,
+        executionTimeMs,
+        executedAt: new Date().toISOString(),
+        mode: 'paper',
+      };
+
+      // Update opportunity with execution details
+      await supabase
+        .from('arbitrage_opportunities')
+        .update({
+          status: 'completed',
+          closed_at: new Date().toISOString(),
+          execution_details: executionResult,
+        })
+        .eq('id', storedOpp.id);
+
+      // Auto-create hedge if conditions met
+      let hedgeCreated = false;
+      let hedgeData = null;
+
+      if (autoHedge && opportunity.hedgeRecommendation) {
+        const recommendation = opportunity.hedgeRecommendation;
+        
+        // Check if funding capture meets threshold
+        if (recommendation.expectedFundingCapture >= hedgeMinFundingCapture) {
+          console.log(`Auto-creating hedge for ${opportunity.symbol}`);
+
+          const hedgeSize = Math.min(
+            opportunity.volumeAvailable,
+            maxPositionSize / opportunity.buyPrice
+          );
+
+          const hedgePosition = {
+            user_id: user.id,
+            arbitrage_id: storedOpp.id,
+            symbol: opportunity.symbol,
+            long_exchange: recommendation.longExchange,
+            short_exchange: recommendation.shortExchange,
+            long_size: hedgeSize,
+            short_size: hedgeSize,
+            long_entry_price: opportunity.buyPrice,
+            short_entry_price: opportunity.sellPrice,
+            long_current_price: opportunity.buyPrice,
+            short_current_price: opportunity.sellPrice,
+            status: 'open',
+          };
+
+          const { data: hedge, error: hedgeError } = await supabase
+            .from('hedge_positions')
+            .insert(hedgePosition)
+            .select()
+            .single();
+
+          if (!hedgeError && hedge) {
+            hedgeCreated = true;
+            hedgeData = hedge;
+
+            // Update opportunity with hedge status
+            await supabase
+              .from('arbitrage_opportunities')
+              .update({ hedge_status: 'hedged' })
+              .eq('id', storedOpp.id);
+
+            console.log(`Hedge created: ${hedge.id}`);
+          } else {
+            console.error('Failed to create auto-hedge:', hedgeError);
+          }
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          opportunityId: storedOpp.id,
+          execution: executionResult,
+          hedgeCreated,
+          hedge: hedgeData,
+          summary: {
+            symbol: opportunity.symbol,
+            type: opportunity.type,
+            profit: executionResult.actualProfit,
+            executionTime: executionTimeMs,
+          },
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     throw new Error(`Unknown action: ${action}`);
 
   } catch (error: any) {
