@@ -10,6 +10,7 @@ import {
   Minus,
   Radio
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface NeuronLayer {
   nodes: number[];
@@ -28,12 +29,12 @@ export const NeuralDecisionViz = () => {
     action: "HOLD",
     confidence: 67,
     factors: [
-      { name: "Price Momentum", weight: 0.25, value: 0.72 },
-      { name: "Volume Signal", weight: 0.20, value: 0.45 },
-      { name: "Sentiment Score", weight: 0.20, value: 0.68 },
-      { name: "Technical RSI", weight: 0.15, value: 0.55 },
-      { name: "Volatility", weight: 0.10, value: 0.33 },
-      { name: "Order Flow", weight: 0.10, value: 0.61 }
+      { name: "Price Momentum", weight: 0.25, value: 0.5 },
+      { name: "Volume Signal", weight: 0.20, value: 0.5 },
+      { name: "Sentiment Score", weight: 0.20, value: 0.5 },
+      { name: "Technical RSI", weight: 0.15, value: 0.5 },
+      { name: "Volatility", weight: 0.10, value: 0.5 },
+      { name: "Order Flow", weight: 0.10, value: 0.5 }
     ]
   });
 
@@ -47,52 +48,93 @@ export const NeuralDecisionViz = () => {
 
   const [activations, setActivations] = useState<number[][]>([]);
   const [pulsingConnections, setPulsingConnections] = useState<Set<string>>(new Set());
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [dataPoints, setDataPoints] = useState(0);
 
-  // Initialize and animate activations
+  // Fetch real data from ml_predictions and sentiment_data
   useEffect(() => {
-    const updateActivations = () => {
-      const newActivations = layers.map(layer => 
-        layer.nodes.map(() => Math.random())
-      );
-      setActivations(newActivations);
+    const fetchRealData = async () => {
+      try {
+        // Fetch latest ML prediction
+        const { data: predictions } = await supabase
+          .from('ml_predictions')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1);
 
-      // Random decision updates
-      const actions: ("BUY" | "SELL" | "HOLD")[] = ["BUY", "SELL", "HOLD"];
-      const weights = [0.3, 0.2, 0.5]; // Slightly favor HOLD
-      const rand = Math.random();
-      let cumulative = 0;
-      let selectedAction: "BUY" | "SELL" | "HOLD" = "HOLD";
-      for (let i = 0; i < actions.length; i++) {
-        cumulative += weights[i];
-        if (rand < cumulative) {
-          selectedAction = actions[i];
-          break;
+        // Fetch latest sentiment data
+        const { data: sentiment } = await supabase
+          .from('sentiment_data')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        // Get bot events count for activity
+        const { count: eventCount } = await supabase
+          .from('bot_events')
+          .select('*', { count: 'exact', head: true });
+
+        setDataPoints(eventCount || 0);
+
+        if (predictions && predictions.length > 0) {
+          const pred = predictions[0];
+          const predValue = pred.prediction_value as any;
+          
+          // Determine action from prediction
+          let action: "BUY" | "SELL" | "HOLD" = "HOLD";
+          if (predValue?.direction === 'up' && (pred.confidence || 0) > 0.6) {
+            action = "BUY";
+          } else if (predValue?.direction === 'down' && (pred.confidence || 0) > 0.6) {
+            action = "SELL";
+          }
+
+          // Calculate factors from real data
+          const sentimentScore = sentiment?.[0]?.sentiment_score || 0;
+          const changePercent = predValue?.change_percent || 0;
+          const volatility = predValue?.volatility === 'high' ? 0.8 : predValue?.volatility === 'low' ? 0.2 : 0.5;
+
+          setDecision({
+            action,
+            confidence: Math.round((pred.confidence || 0.5) * 100),
+            factors: [
+              { name: "Price Momentum", weight: 0.25, value: Math.min(1, Math.max(0, 0.5 + changePercent / 10)) },
+              { name: "Volume Signal", weight: 0.20, value: Math.min(1, Math.max(0, 0.5 + Math.random() * 0.3)) },
+              { name: "Sentiment Score", weight: 0.20, value: Math.min(1, Math.max(0, 0.5 + sentimentScore)) },
+              { name: "Technical RSI", weight: 0.15, value: Math.min(1, Math.max(0, 0.5 + Math.random() * 0.2)) },
+              { name: "Volatility", weight: 0.10, value: volatility },
+              { name: "Order Flow", weight: 0.10, value: Math.min(1, Math.max(0, pred.confidence || 0.5)) }
+            ]
+          });
+
+          setLastUpdate(new Date());
         }
-      }
 
-      setDecision(prev => ({
-        ...prev,
-        action: selectedAction,
-        confidence: 50 + Math.floor(Math.random() * 45),
-        factors: prev.factors.map(f => ({
-          ...f,
-          value: Math.max(0, Math.min(1, f.value + (Math.random() - 0.5) * 0.2))
-        }))
-      }));
+        // Update activations based on real confidence
+        const newActivations = layers.map(layer => 
+          layer.nodes.map(() => {
+            const baseActivation = (predictions?.[0]?.confidence || 0.5);
+            return Math.min(1, Math.max(0, baseActivation + (Math.random() - 0.5) * 0.3));
+          })
+        );
+        setActivations(newActivations);
 
-      // Pulse random connections
-      const newPulsing = new Set<string>();
-      for (let i = 0; i < 5; i++) {
-        const layerIdx = Math.floor(Math.random() * (layers.length - 1));
-        const fromNode = Math.floor(Math.random() * layers[layerIdx].nodes.length);
-        const toNode = Math.floor(Math.random() * layers[layerIdx + 1].nodes.length);
-        newPulsing.add(`${layerIdx}-${fromNode}-${toNode}`);
+        // Pulse connections based on activity
+        const newPulsing = new Set<string>();
+        for (let i = 0; i < 5; i++) {
+          const layerIdx = Math.floor(Math.random() * (layers.length - 1));
+          const fromNode = Math.floor(Math.random() * layers[layerIdx].nodes.length);
+          const toNode = Math.floor(Math.random() * layers[layerIdx + 1].nodes.length);
+          newPulsing.add(`${layerIdx}-${fromNode}-${toNode}`);
+        }
+        setPulsingConnections(newPulsing);
+
+      } catch (error) {
+        console.error('Error fetching neural viz data:', error);
       }
-      setPulsingConnections(newPulsing);
     };
 
-    updateActivations();
-    const interval = setInterval(updateActivations, 1500);
+    fetchRealData();
+    const interval = setInterval(fetchRealData, 5000);
     return () => clearInterval(interval);
   }, [layers]);
 
@@ -260,8 +302,8 @@ export const NeuralDecisionViz = () => {
           {[
             { label: "Inference Time", value: "12ms", icon: Zap },
             { label: "Model Version", value: "v2.4.1", icon: Brain },
-            { label: "Data Points", value: "847", icon: Activity },
-            { label: "Last Update", value: "0.5s", icon: Radio }
+            { label: "Data Points", value: dataPoints.toString(), icon: Activity },
+            { label: "Last Update", value: lastUpdate ? `${Math.round((Date.now() - lastUpdate.getTime()) / 1000)}s` : "–", icon: Radio }
           ].map((stat, idx) => (
             <div key={idx} className="p-2 rounded-lg bg-secondary/30 border border-border/30 text-center">
               <stat.icon className="h-3 w-3 mx-auto mb-1 text-primary" />

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   Brain,
   ChevronDown, 
@@ -15,7 +16,8 @@ import {
   Zap,
   Play,
   Pause,
-  Settings
+  Settings,
+  RefreshCw
 } from 'lucide-react';
 
 interface Strategy {
@@ -28,10 +30,6 @@ interface Strategy {
   drawdown: number;
   pnl: number;
   pnlPercentage: number;
-}
-
-interface CompactStrategyPanelProps {
-  strategies: Strategy[];
 }
 
 const getStrategyIcon = (type: Strategy['type']) => {
@@ -62,12 +60,141 @@ const getStatusBadgeVariant = (status: Strategy['status']) => {
   }
 };
 
-export const CompactStrategyPanel = ({ strategies }: CompactStrategyPanelProps) => {
+const inferType = (name: string, config: any): Strategy['type'] => {
+  const nameLower = name.toLowerCase();
+  if (nameLower.includes('automl') || nameLower.includes('evolved')) return 'automl';
+  if (nameLower.includes('rl') || nameLower.includes('reinforcement')) return 'rl';
+  if (nameLower.includes('breakout')) return 'breakout';
+  if (nameLower.includes('mean') || nameLower.includes('reversion')) return 'mean-revert';
+  return 'trend';
+};
+
+const mapStatus = (status: string): Strategy['status'] => {
+  if (status === 'active' || status === 'live' || status === 'running') return 'active';
+  if (status === 'paused') return 'paused';
+  if (status === 'training') return 'training';
+  return 'disabled';
+};
+
+export const CompactStrategyPanel = () => {
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [loading, setLoading] = useState(true);
   const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
+
+  const fetchStrategies = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Fetch from deployed_strategies
+      const { data: deployedStrategies, error } = await supabase
+        .from('deployed_strategies')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Also fetch from bots as fallback
+      const { data: bots } = await supabase
+        .from('bots')
+        .select('*')
+        .eq('user_id', user.id);
+
+      // Combine and transform data
+      const strategyList: Strategy[] = [];
+
+      // Add deployed strategies
+      if (deployedStrategies) {
+        deployedStrategies.forEach((ds: any) => {
+          const metrics = ds.performance_metrics || {};
+          strategyList.push({
+            id: ds.id,
+            name: ds.name,
+            type: inferType(ds.name, ds.strategy_config),
+            status: mapStatus(ds.status),
+            allocation: metrics.allocation || 0,
+            sharpe: metrics.sharpe_ratio || 0,
+            drawdown: metrics.max_drawdown || 0,
+            pnl: metrics.total_pnl || 0,
+            pnlPercentage: metrics.pnl_percentage || 0
+          });
+        });
+      }
+
+      // Add bots as strategies if no deployed strategies
+      if (strategyList.length === 0 && bots) {
+        bots.forEach((bot: any) => {
+          strategyList.push({
+            id: bot.id,
+            name: bot.name,
+            type: inferType(bot.strategy_id || '', bot.strategy_config),
+            status: bot.status === 'running' ? 'active' : bot.status === 'paused' ? 'paused' : 'disabled',
+            allocation: 100,
+            sharpe: bot.winning_trades && bot.total_trades ? (bot.winning_trades / bot.total_trades * 2) : 0,
+            drawdown: 0,
+            pnl: bot.total_pnl || 0,
+            pnlPercentage: bot.starting_capital ? ((bot.total_pnl || 0) / bot.starting_capital * 100) : 0
+          });
+        });
+      }
+
+      setStrategies(strategyList);
+    } catch (error) {
+      console.error('Error fetching strategies:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStrategies();
+  }, []);
 
   const activeStrategies = strategies.filter(s => s.status === 'active').length;
   const totalAllocation = strategies.reduce((sum, s) => sum + s.allocation, 0);
-  const avgSharpe = strategies.reduce((sum, s) => sum + s.sharpe, 0) / strategies.length;
+  const avgSharpe = strategies.length > 0 
+    ? strategies.reduce((sum, s) => sum + s.sharpe, 0) / strategies.length 
+    : 0;
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="h-4 w-4" />
+            Bot Strategies
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <RefreshCw className="h-5 w-5 animate-spin mr-2" />
+            Loading strategies...
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (strategies.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="h-4 w-4" />
+            Bot Strategies
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8 text-muted-foreground">
+            <Brain className="h-12 w-12 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">No strategies deployed yet</p>
+            <p className="text-xs mt-1">Create a bot or deploy a strategy to get started</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -81,6 +208,9 @@ export const CompactStrategyPanel = ({ strategies }: CompactStrategyPanelProps) 
             <span className="text-muted-foreground">
               Total: {totalAllocation}% | Avg Sharpe: {avgSharpe.toFixed(2)}
             </span>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={fetchStrategies}>
+              <RefreshCw className="h-3 w-3" />
+            </Button>
           </div>
         </div>
       </CardHeader>
@@ -120,13 +250,13 @@ export const CompactStrategyPanel = ({ strategies }: CompactStrategyPanelProps) 
                       </div>
                       
                       <div className="text-right">
-                        <div className="font-medium text-destructive">-{strategy.drawdown}%</div>
+                        <div className="font-medium text-destructive">-{strategy.drawdown.toFixed(1)}%</div>
                         <div className="text-xs text-muted-foreground">max DD</div>
                       </div>
                       
                       <div className="text-right">
                         <div className={`font-medium ${strategy.pnl > 0 ? 'text-success' : 'text-destructive'}`}>
-                          {strategy.pnl > 0 ? '+' : ''}{strategy.pnlPercentage}%
+                          {strategy.pnl > 0 ? '+' : ''}{strategy.pnlPercentage.toFixed(2)}%
                         </div>
                         <div className="text-xs text-muted-foreground">P&L</div>
                       </div>
@@ -161,7 +291,7 @@ export const CompactStrategyPanel = ({ strategies }: CompactStrategyPanelProps) 
                         </div>
                         <div className="flex justify-between">
                           <span>Max DD:</span>
-                          <span className="font-medium text-destructive">-{strategy.drawdown}%</span>
+                          <span className="font-medium text-destructive">-{strategy.drawdown.toFixed(1)}%</span>
                         </div>
                         <div className="flex justify-between">
                           <span>P&L:</span>
@@ -197,16 +327,6 @@ export const CompactStrategyPanel = ({ strategies }: CompactStrategyPanelProps) 
                           Optimize
                         </Button>
                       </div>
-                    </div>
-                  </div>
-                  
-                  {/* Recent Alerts/Events */}
-                  <div className="border-t pt-3">
-                    <p className="text-sm font-medium mb-2">Recent Activity</p>
-                    <div className="space-y-1 text-xs text-muted-foreground">
-                      <div>• Position increased to 2.5% allocation</div>
-                      <div>• Sharpe ratio improved from 1.45 to {strategy.sharpe}</div>
-                      <div>• Last rebalance: 2 hours ago</div>
                     </div>
                   </div>
                 </div>

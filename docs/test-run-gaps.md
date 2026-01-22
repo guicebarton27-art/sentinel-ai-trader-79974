@@ -28,6 +28,8 @@
 |----------|--------|-------------|
 | `test-trading-loop` | ✅ Deployed | Creates bot_run, order, position, verifies persistence |
 | `bot-lifecycle-test` | ✅ Deployed | Full lifecycle: create → start → trade → stop → verify |
+| `fetch-candles` | ✅ Deployed | Fetches OHLCV from Kraken, upserts to DB |
+| `reconcile-positions` | ✅ Deployed | Compares exchange vs DB positions |
 
 ### Running Integration Tests
 
@@ -40,6 +42,13 @@ curl -X POST https://swpjpzsnqpamdchdlkpf.supabase.co/functions/v1/bot-lifecycle
 
 ## Remaining Gaps
 
+### ✅ Completed
+- [x] **UI Mock Data Removal**: All trading components now read from Supabase/Kraken
+- [x] **Market Data Pipeline**: `fetch-candles` edge function deployed and wired
+- [x] **Neural Viz Components**: `NeuralDecisionViz`, `AutonomousAgentViz`, `AICommandCenter` wired to real data
+- [x] **Strategy Panel**: `CompactStrategyPanel` fetches from `deployed_strategies` and `bots`
+- [x] **Execution Metrics**: Calculated from real `orders` table data
+
 ### High Priority
 - [ ] **E2E Browser Tests**: Playwright/Cypress tests for UI flows
 - [ ] **Backtest E2E**: Automated test that runs backtest and verifies results in UI
@@ -50,7 +59,7 @@ curl -X POST https://swpjpzsnqpamdchdlkpf.supabase.co/functions/v1/bot-lifecycle
 
 ### Low Priority
 - [ ] **Stress testing**: Load tests for tick-bots under high bot count
-- [ ] **Reconciliation tests**: Verify position drift detection
+- [ ] **Reconciliation UI**: Add visual panel for position reconciliation results
 
 ## CI/CD Integration
 
