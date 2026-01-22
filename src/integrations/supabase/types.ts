@@ -97,6 +97,7 @@ export type Database = {
           equity: number
           id: string
           timestamp: number
+          user_id: string | null
         }
         Insert: {
           backtest_run_id: string
@@ -105,6 +106,7 @@ export type Database = {
           equity: number
           id?: string
           timestamp: number
+          user_id?: string | null
         }
         Update: {
           backtest_run_id?: string
@@ -113,6 +115,7 @@ export type Database = {
           equity?: number
           id?: string
           timestamp?: number
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -149,6 +152,7 @@ export type Database = {
           symbol: string
           total_return: number
           total_trades: number
+          user_id: string | null
           walk_forward_analysis: Json | null
           win_rate: number
           winning_trades: number
@@ -177,6 +181,7 @@ export type Database = {
           symbol: string
           total_return: number
           total_trades: number
+          user_id?: string | null
           walk_forward_analysis?: Json | null
           win_rate: number
           winning_trades: number
@@ -205,6 +210,7 @@ export type Database = {
           symbol?: string
           total_return?: number
           total_trades?: number
+          user_id?: string | null
           walk_forward_analysis?: Json | null
           win_rate?: number
           winning_trades?: number
@@ -225,6 +231,7 @@ export type Database = {
           side: string
           signal_strength: number | null
           size: number
+          user_id: string | null
         }
         Insert: {
           backtest_run_id: string
@@ -239,6 +246,7 @@ export type Database = {
           side: string
           signal_strength?: number | null
           size: number
+          user_id?: string | null
         }
         Update: {
           backtest_run_id?: string
@@ -253,6 +261,7 @@ export type Database = {
           side?: string
           signal_strength?: number | null
           size?: number
+          user_id?: string | null
         }
         Relationships: [
           {

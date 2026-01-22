@@ -74,3 +74,6 @@ verify_jwt = false
 
 [functions.test-trading-loop]
 verify_jwt = false
+
+[functions.bot-lifecycle-test]
+verify_jwt = false
