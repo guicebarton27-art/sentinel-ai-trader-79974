@@ -102,6 +102,7 @@ const getStrategyIcon = (type: Strategy['type']) => {
     case 'mean-revert': return Target;
     case 'automl': return Brain;
     case 'rl': return Zap;
+    default: return Activity;
   }
 };
 
@@ -111,6 +112,7 @@ const getStatusColor = (status: Strategy['status']) => {
     case 'paused': return 'bg-warning text-warning-foreground';
     case 'training': return 'bg-algo-primary text-white';
     case 'disabled': return 'bg-neutral text-white';
+    default: return 'bg-muted text-muted-foreground';
   }
 };
 
