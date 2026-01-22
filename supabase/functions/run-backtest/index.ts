@@ -566,7 +566,7 @@ serve(async (req) => {
     const metrics = calculateMetrics(trades, initialCapital, finalCapital, equityCurve);
 
     // Store backtest run
-    const { data: backtestRun, error: runError } = await supabase
+    const { data: backtestRun, error: backtestRunError } = await supabase
       .from('backtest_runs')
       .insert({
         run_id: runId,
@@ -584,7 +584,7 @@ serve(async (req) => {
       .select()
       .single();
 
-    if (runError) throw runError;
+    if (backtestRunError) throw backtestRunError;
 
     // Store trades
     if (trades.length > 0) {
