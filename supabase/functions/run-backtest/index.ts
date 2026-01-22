@@ -110,7 +110,7 @@ async function authenticateUser(req: Request): Promise<AuthResult> {
     throw new Error('Insufficient permissions. Trader or admin role required.');
   }
 
-  return { user, role };
+  return { user: { id: user.id, email: user.email ?? 'unknown' }, role };
 }
 
 // Calculate technical indicators
