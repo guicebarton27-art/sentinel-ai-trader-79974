@@ -10,7 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 interface RunRecord {
   id: string;
-  state: string;
+  status: string;
   last_tick_at?: string | null;
 }
 
@@ -30,17 +30,17 @@ export const RunControlPanel = () => {
   const [loading, setLoading] = useState(false);
 
   const statusColor = useMemo(() => {
-    if (!run?.state) return 'bg-muted text-muted-foreground';
-    if (run.state === 'running') return 'bg-success text-success-foreground';
-    if (run.state === 'completed') return 'bg-primary text-primary-foreground';
-    if (run.state === 'failed') return 'bg-destructive text-destructive-foreground';
+    if (!run?.status) return 'bg-muted text-muted-foreground';
+    if (run.status === 'running') return 'bg-success text-success-foreground';
+    if (run.status === 'completed') return 'bg-primary text-primary-foreground';
+    if (run.status === 'failed') return 'bg-destructive text-destructive-foreground';
     return 'bg-muted text-muted-foreground';
-  }, [run?.state]);
+  }, [run?.status]);
 
   const fetchRun = useCallback(async (runId: string) => {
     const { data, error } = await supabase
-      .from('runs')
-      .select('id, state, last_tick_at')
+      .from('bot_runs')
+      .select('id, status, last_tick_at')
       .eq('id', runId)
       .single();
 
@@ -51,18 +51,18 @@ export const RunControlPanel = () => {
     setRun(data as RunRecord);
   }, []);
 
-  const fetchEvents = useCallback(async (runId: string) => {
+  const fetchEvents = useCallback(async (botId: string) => {
     const { data, error } = await supabase
       .from('bot_events')
       .select('id, event_type, message, severity, created_at')
-      .eq('run_id', runId)
+      .eq('bot_id', botId)
       .order('created_at', { ascending: false })
       .limit(50);
 
     if (error) {
       toast({
         title: 'Error',
-        description: 'Failed to load run events',
+        description: 'Failed to load bot events',
         variant: 'destructive',
       });
       return;
@@ -83,7 +83,7 @@ export const RunControlPanel = () => {
       const nextRun = data?.run as RunRecord | undefined;
       if (nextRun) {
         setRun(nextRun);
-        await fetchEvents(nextRun.id);
+        await fetchEvents(activeBot.id);
       }
       toast({
         title: 'Run created',
@@ -101,7 +101,7 @@ export const RunControlPanel = () => {
   }, [activeBot, fetchEvents, toast]);
 
   const handleTransition = useCallback(async (transition: 'start' | 'pause' | 'stop' | 'kill') => {
-    if (!run) return;
+    if (!run || !activeBot) return;
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('run-control/request-transition', {
@@ -112,7 +112,7 @@ export const RunControlPanel = () => {
       if (data?.run) {
         setRun(data.run as RunRecord);
       }
-      await fetchEvents(run.id);
+      await fetchEvents(activeBot.id);
       toast({
         title: 'Run updated',
         description: `Transitioned run (${transition}).`,
@@ -126,10 +126,10 @@ export const RunControlPanel = () => {
     } finally {
       setLoading(false);
     }
-  }, [fetchEvents, run, toast]);
+  }, [activeBot, fetchEvents, run, toast]);
 
   const handleRunTick = useCallback(async () => {
-    if (!run) return;
+    if (!run || !activeBot) return;
     setLoading(true);
     try {
       const { error } = await supabase.functions.invoke('run-control/run-one-tick', {
@@ -143,7 +143,7 @@ export const RunControlPanel = () => {
       });
       setTimeout(async () => {
         await fetchRun(run.id);
-        await fetchEvents(run.id);
+        await fetchEvents(activeBot.id);
       }, 800);
     } catch (err) {
       toast({
@@ -154,14 +154,13 @@ export const RunControlPanel = () => {
     } finally {
       setLoading(false);
     }
-  }, [fetchEvents, run, toast]);
+  }, [activeBot, fetchEvents, fetchRun, run, toast]);
 
   useEffect(() => {
-    if (run?.id) {
-      fetchRun(run.id);
-      fetchEvents(run.id);
+    if (activeBot?.id) {
+      fetchEvents(activeBot.id);
     }
-  }, [fetchEvents, fetchRun, run?.id]);
+  }, [activeBot?.id, fetchEvents]);
 
   useEffect(() => {
     setRun(null);
@@ -173,7 +172,7 @@ export const RunControlPanel = () => {
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-lg">Run Control</CardTitle>
         {run ? (
-          <Badge className={statusColor}>{run.state}</Badge>
+          <Badge className={statusColor}>{run.status}</Badge>
         ) : (
           <Badge className="bg-muted text-muted-foreground">No active run</Badge>
         )}
@@ -208,8 +207,8 @@ export const RunControlPanel = () => {
               Run 1 Tick
             </Button>
             <Button
-              onClick={() => run && fetchEvents(run.id)}
-              disabled={!run || loading}
+              onClick={() => activeBot && fetchEvents(activeBot.id)}
+              disabled={!activeBot || loading}
               variant="ghost"
               className="gap-2"
             >
@@ -231,7 +230,7 @@ export const RunControlPanel = () => {
           <ScrollArea className="h-64 rounded-md border border-border/50 bg-background/40">
             <div className="space-y-2 p-3">
               {events.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No events for this run yet.</div>
+                <div className="text-sm text-muted-foreground">No events for this bot yet.</div>
               ) : (
                 events.map((event) => (
                   <div key={event.id} className="flex flex-col gap-1 border-b border-border/40 pb-2 last:border-b-0">
