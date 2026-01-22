@@ -86,3 +86,6 @@ verify_jwt = false
 
 [functions.fetch-candles]
 verify_jwt = true
+
+[functions.multi-exchange-arbitrage]
+verify_jwt = true

@@ -34,6 +34,7 @@ import { StrategyEngine } from './trading/StrategyEngine';
 import { RiskEngine } from './trading/RiskEngine';
 import { ExecutionRouter } from './trading/ExecutionRouter';
 import { ArbitrageDetector } from './trading/ArbitrageDetector';
+import { MultiExchangeArbitrage } from './trading/MultiExchangeArbitrage';
 import { StrategyRecommendation } from './trading/StrategyRecommendation';
 import { ApiKeyManager } from './trading/ApiKeyManager';
 import { BacktestPanel } from './trading/BacktestPanel';
@@ -442,6 +443,9 @@ export const TradingDashboard = () => {
               <StrategyRecommendation symbol="BTC/USD" />
               <ArbitrageDetector />
             </div>
+            
+            {/* Multi-Exchange Arbitrage with Delta-Neutral Hedging */}
+            <MultiExchangeArbitrage />
           </TabsContent>
 
           <TabsContent value="strategies" className="space-y-6 animate-in fade-in-50 duration-300">
