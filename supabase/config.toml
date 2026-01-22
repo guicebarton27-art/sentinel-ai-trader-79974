@@ -80,3 +80,6 @@ verify_jwt = false
 
 [functions.ai-copilot]
 verify_jwt = false
+
+[functions.reconcile-positions]
+verify_jwt = false
