@@ -286,6 +286,22 @@ export function useBotController() {
     }
   }, []);
 
+  const runTick = useCallback(async (botId: string) => {
+    try {
+      setError(null);
+      const { data, error: tickError } = await supabase.functions.invoke('bot-controller/tick', {
+        body: { bot_id: botId }
+      });
+
+      if (tickError) throw tickError;
+
+      return data;
+    } catch (err) {
+      console.error('Error triggering tick:', err);
+      throw err;
+    }
+  }, []);
+
   // Delete bot
   const deleteBot = useCallback(async (botId: string) => {
     try {
@@ -441,6 +457,7 @@ export function useBotController() {
     stopBot,
     killBot,
     updateBot,
+    runTick,
     deleteBot,
   };
 }

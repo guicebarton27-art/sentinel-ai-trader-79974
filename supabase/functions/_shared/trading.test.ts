@@ -30,6 +30,7 @@ Deno.test("evaluateRisk blocks trades when limits are exceeded", () => {
     take_profit: 1200,
     confidence: 0.9,
     rationale: "Test",
+    run_id: "run-1",
     trace_id: "trace-1",
   };
 

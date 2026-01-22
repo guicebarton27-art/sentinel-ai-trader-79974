@@ -35,6 +35,7 @@ export interface TradeDecision {
   take_profit: number;
   confidence: number;
   rationale: string;
+  run_id: string;
   trace_id: string;
 }
 
@@ -61,6 +62,21 @@ export interface RiskInputs {
 export interface RiskCheckResult {
   allowed: boolean;
   flags: string[];
+}
+
+export interface DecisionInput {
+  symbol: string;
+  side: OrderSide;
+  entry: number;
+  confidence: number;
+  rationale: string;
+  currentCapital: number;
+  positionSizePct: number;
+  stopLossPct: number;
+  takeProfitPct: number;
+  run_id: string;
+  trace_id: string;
+  scalePositionByConfidence?: boolean;
 }
 
 export const generateBaselineSignal = (
@@ -131,4 +147,33 @@ export const evaluateRisk = (decision: TradeDecision, inputs: RiskInputs): RiskC
   }
 
   return { allowed: flags.length === 0, flags };
+};
+
+export const createTradeDecision = (input: DecisionInput): TradeDecision | null => {
+  const positionSizePct = Math.max(input.positionSizePct, 0);
+  const confidence = Math.min(Math.max(input.confidence, 0), 1);
+  const scaleByConfidence = input.scalePositionByConfidence ?? true;
+  const positionValue = input.currentCapital * positionSizePct * (scaleByConfidence ? confidence : 1);
+  const quantity = positionValue / input.entry;
+
+  if (quantity <= 0) {
+    return null;
+  }
+
+  return {
+    symbol: input.symbol,
+    side: input.side,
+    size: quantity,
+    entry: input.entry,
+    stop: input.side === 'buy'
+      ? input.entry * (1 - input.stopLossPct / 100)
+      : input.entry * (1 + input.stopLossPct / 100),
+    take_profit: input.side === 'buy'
+      ? input.entry * (1 + input.takeProfitPct / 100)
+      : input.entry * (1 - input.takeProfitPct / 100),
+    confidence,
+    rationale: input.rationale,
+    run_id: input.run_id,
+    trace_id: input.trace_id,
+  };
 };
