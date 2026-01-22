@@ -63,7 +63,7 @@ interface StrategyConfig {
 }
 
 interface AuthResult {
-  user: { id: string; email: string };
+  user: { id: string; email?: string };
   role: string;
   isService?: boolean;
 }
@@ -501,7 +501,7 @@ serve(async (req) => {
     // Calculate metrics
     const metrics = calculateMetrics(trades, initialCapital, finalCapital, equityCurve);
 
-    // Store backtest run
+    // Store backtest run with user_id for RLS
     const { data: backtestRun, error: runError } = await supabase
       .from('backtest_runs')
       .insert({
@@ -514,17 +514,19 @@ serve(async (req) => {
         final_capital: finalCapital,
         ...metrics,
         strategy_config: { ...strategyConfig, seed: seedValue },
+        user_id: user.id,
       })
       .select()
       .single();
 
     if (runError) throw runError;
 
-    // Store trades
+    // Store trades with user_id for RLS
     if (trades.length > 0) {
       const tradesWithRunId = trades.map(trade => ({
         ...trade,
         backtest_run_id: backtestRun.id,
+        user_id: user.id,
       }));
 
       const { error: tradesError } = await supabase
@@ -534,12 +536,13 @@ serve(async (req) => {
       if (tradesError) throw tradesError;
     }
 
-    // Store equity curve (sample every 100 points to reduce storage)
+    // Store equity curve with user_id for RLS (sample every 100 points to reduce storage)
     const sampledEquityCurve = equityCurve.filter((_, i) => i % Math.max(1, Math.floor(equityCurve.length / 1000)) === 0);
     if (sampledEquityCurve.length > 0) {
       const equityCurveWithRunId = sampledEquityCurve.map(point => ({
         ...point,
         backtest_run_id: backtestRun.id,
+        user_id: user.id,
       }));
 
       const { error: equityError } = await supabase
