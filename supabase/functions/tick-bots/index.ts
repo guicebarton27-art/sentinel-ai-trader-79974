@@ -517,6 +517,19 @@ async function executePaperTrade(
   );
 }
 
+async function executeTrade(
+  supabase: SupabaseClient,
+  bot: Bot,
+  decision: TradeDecision
+): Promise<void> {
+  if (bot.mode === 'paper') {
+    await executePaperTrade(supabase, bot, decision);
+    return;
+  }
+
+  await executeLiveTrade(supabase, bot, decision);
+}
+
 // Execute live trade via Kraken API
 async function executeLiveTrade(
   supabase: SupabaseClient,
@@ -838,7 +851,7 @@ async function processBotTick(
       // Check stop loss / take profit
       if (position.side === 'buy') {
         if (position.stop_loss_price && marketData.price <= position.stop_loss_price) {
-          await executePaperTrade(supabase, bot, {
+          await executeTrade(supabase, bot, {
             symbol: bot.symbol,
             side: 'sell',
             size: position.quantity,
@@ -864,7 +877,7 @@ async function processBotTick(
           return;
         }
         if (position.take_profit_price && marketData.price >= position.take_profit_price) {
-          await executePaperTrade(supabase, bot, {
+          await executeTrade(supabase, bot, {
             symbol: bot.symbol,
             side: 'sell',
             size: position.quantity,
@@ -880,7 +893,7 @@ async function processBotTick(
         }
       } else {
         if (position.stop_loss_price && marketData.price >= position.stop_loss_price) {
-          await executePaperTrade(supabase, bot, {
+          await executeTrade(supabase, bot, {
             symbol: bot.symbol,
             side: 'buy',
             size: position.quantity,
@@ -906,7 +919,7 @@ async function processBotTick(
           return;
         }
         if (position.take_profit_price && marketData.price <= position.take_profit_price) {
-          await executePaperTrade(supabase, bot, {
+          await executeTrade(supabase, bot, {
             symbol: bot.symbol,
             side: 'buy',
             size: position.quantity,
@@ -979,12 +992,7 @@ async function processBotTick(
       const riskCheck = evaluateRisk(decision, riskInputs);
 
       if (riskCheck.allowed) {
-        if (bot.mode === 'paper') {
-          await executePaperTrade(supabase, bot, decision);
-        } else {
-          // Live trading via exchange-kraken adapter
-          await executeLiveTrade(supabase, bot, decision);
-        }
+        await executeTrade(supabase, bot, decision);
       } else {
         await recordRiskRejection(supabase, bot, decision, riskCheck.flags);
         await logEvent(
