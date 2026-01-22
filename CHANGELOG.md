@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Production Readiness Audit**: Created `/docs/audit.md` documenting real vs fake data flows
 - **Bot Lifecycle Integration Tests**: New Edge Function `bot-lifecycle-test` that validates the complete bot lifecycle: create → start → trade → stop → verify state
 - **Extended Trading Unit Tests**: Added comprehensive Deno tests for signal generation, risk evaluation, state machine validation
+- **Real Data Indicators**: LiveCandleChart now shows "DB Connected" or "Demo Mode" badge
 - Comprehensive project documentation (README, CONTRIBUTING, DEPLOYMENT)
 - GitHub Actions CI/CD pipeline
 - Issue and PR templates
@@ -17,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MIT License with trading disclaimer
 
 ### Changed
+- **LiveCandleChart**: Now accepts real positions/orders from database, falls back to simulated data gracefully
+- **TradingDashboard strategies**: Removed hardcoded mock array, now derives from active bot data
 - Enhanced README with detailed feature list and setup instructions
 - Improved project structure documentation
 
@@ -27,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Build configuration optimizations
 - TradingDashboard now fetches real strategy data instead of hardcoded mock data
+- LiveCandleChart connected to real positions and orders via props
 
 ## [1.0.0] - 2024-12-31
 

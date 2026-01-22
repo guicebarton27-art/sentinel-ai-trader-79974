@@ -129,41 +129,33 @@ export const TradingDashboard = () => {
     dailyLossLimit: 5000
   };
 
-  const strategies = [
-    {
-      id: 'trend-001',
-      name: 'Momentum Alpha',
-      type: 'trend' as const,
-      status: 'active' as const,
-      allocation: 35,
-      sharpe: 1.85,
-      drawdown: 8.5,
-      pnl: 12500,
-      pnlPercentage: 4.2
-    },
-    {
-      id: 'breakout-002', 
-      name: 'Volatility Breakout',
-      type: 'breakout' as const,
-      status: 'active' as const,
-      allocation: 25,
-      sharpe: 1.62,
-      drawdown: 12.1,
-      pnl: -1200,
-      pnlPercentage: -1.8
-    },
-    {
-      id: 'mean-003',
-      name: 'Mean Reversion Pro', 
-      type: 'mean-revert' as const,
-      status: 'paused' as const,
-      allocation: 20,
-      sharpe: 1.23,
-      drawdown: 15.3,
-      pnl: 2300,
-      pnlPercentage: 2.1
-    }
-  ];
+  // Strategies now come from useBotController or deployed_strategies table
+  // The CompactStrategyPanel will fetch its own data from the database
+  const getStrategyType = (strategyId: string | undefined): 'trend' | 'breakout' | 'mean-revert' => {
+    if (strategyId?.includes('trend')) return 'trend';
+    if (strategyId?.includes('breakout')) return 'breakout';
+    if (strategyId?.includes('mean')) return 'mean-revert';
+    return 'trend';
+  };
+  
+  const getStrategyStatus = (status: string | undefined): 'active' | 'paused' => {
+    if (status === 'running') return 'active';
+    return 'paused';
+  };
+  
+  const strategies = activeBot ? [{
+    id: activeBot.id,
+    name: activeBot.name,
+    type: getStrategyType(activeBot.strategy_id),
+    status: getStrategyStatus(activeBot.status),
+    allocation: 100,
+    sharpe: activeBot.winning_trades && activeBot.total_trades ? 
+            (activeBot.winning_trades / activeBot.total_trades * 2) : 0,
+    drawdown: 0,
+    pnl: activeBot.total_pnl || 0,
+    pnlPercentage: activeBot.starting_capital ? 
+                   ((activeBot.total_pnl || 0) / activeBot.starting_capital * 100) : 0
+  }] : [];
 
   const handleBotControl = async (action: 'start' | 'pause' | 'stop' | 'kill', mode?: 'paper' | 'live') => {
     if (!activeBot) {
@@ -407,8 +399,8 @@ export const TradingDashboard = () => {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-300">
-            {/* Live Candlestick Chart */}
-            <LiveCandleChart />
+            {/* Live Candlestick Chart - Connected to real positions and orders */}
+            <LiveCandleChart realPositions={positions} realOrders={recentOrders} />
             
             {/* Revolutionary AI Command Center */}
             <AICommandCenter />
