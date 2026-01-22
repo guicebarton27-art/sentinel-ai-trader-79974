@@ -69,6 +69,22 @@ function getServiceClient() {
   );
 }
 
+async function updateRunStatus(
+  supabaseClient: ReturnType<typeof createClient>,
+  botId: string,
+  status: string,
+  updates: Record<string, unknown> = {}
+) {
+  await supabaseClient
+    .from('bot_runs')
+    .update({
+      status,
+      ...updates,
+    })
+    .eq('bot_id', botId)
+    .eq('status', 'running');
+}
+
 serve(async (req) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
@@ -194,6 +210,8 @@ serve(async (req) => {
           }
         }
 
+        await updateRunStatus(supabaseClient, bot_id, 'stopped', { ended_at: new Date().toISOString() });
+
         // Update bot status
         const { data: updatedBot, error } = await supabaseClient
           .from('bots')
@@ -210,13 +228,35 @@ serve(async (req) => {
 
         if (error) throw error;
 
+        const { data: runData, error: runError } = await supabaseClient
+          .from('bot_runs')
+          .insert([{
+            bot_id,
+            user_id: user.id,
+            mode: targetMode,
+            status: 'running',
+            starting_capital: updatedBot.current_capital,
+            strategy_config: updatedBot.strategy_config ?? {},
+            risk_config: {
+              max_position_size: updatedBot.max_position_size,
+              max_daily_loss: updatedBot.max_daily_loss,
+              stop_loss_pct: updatedBot.stop_loss_pct,
+              take_profit_pct: updatedBot.take_profit_pct,
+              max_leverage: updatedBot.max_leverage,
+            },
+          }] as unknown[])
+          .select()
+          .single();
+
+        if (runError) throw runError;
+
         await logBotEvent(
           bot_id,
           user.id,
           'start',
           `Bot started in ${targetMode} mode`,
           'info',
-          { mode: targetMode, previous_status: bot.status },
+          { mode: targetMode, previous_status: bot.status, run_id: runData?.id ?? null },
           { capital: Number(bot.current_capital), pnl: Number(bot.total_pnl) }
         );
 
@@ -239,6 +279,8 @@ serve(async (req) => {
 
         if (error) throw error;
 
+        await updateRunStatus(supabaseClient, bot_id, 'paused');
+
         await logBotEvent(bot_id, user.id, 'pause', 'Bot paused', 'info');
 
         return new Response(JSON.stringify({ bot, message: 'Bot paused' }), {
@@ -259,6 +301,8 @@ serve(async (req) => {
           .single();
 
         if (error) throw error;
+
+        await updateRunStatus(supabaseClient, bot_id, 'stopped', { ended_at: new Date().toISOString() });
 
         await logBotEvent(bot_id, user.id, 'stop', 'Bot stopped gracefully', 'info');
 
@@ -291,6 +335,8 @@ serve(async (req) => {
           .single();
 
         if (error) throw error;
+
+        await updateRunStatus(supabaseClient, bot_id, 'killed', { ended_at: new Date().toISOString() });
 
         await logBotEvent(
           bot_id,

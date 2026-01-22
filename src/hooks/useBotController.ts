@@ -83,6 +83,14 @@ export interface BotHealth {
   error_count: number;
 }
 
+export interface LiveStatus {
+  live_enabled: boolean;
+  kill_switch_active: boolean;
+  kill_switch_activated_at: string | null;
+  secrets_ready: boolean;
+  live_ready: boolean;
+}
+
 export function useBotController() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [activeBot, setActiveBot] = useState<Bot | null>(null);
@@ -112,6 +120,52 @@ export function useBotController() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const fetchLiveStatus = useCallback(async () => {
+    const { data, error: liveError } = await supabase.functions.invoke('live-controls/status');
+    if (liveError) throw liveError;
+    return data as LiveStatus;
+  }, []);
+
+  const requestLiveArm = useCallback(async (botId: string) => {
+    const { data, error: requestError } = await supabase.functions.invoke('live-controls/request-arm', {
+      body: { bot_id: botId }
+    });
+    if (requestError) throw requestError;
+    return data as { token: string; run_id: string; trace_id: string };
+  }, []);
+
+  const confirmLiveArm = useCallback(async (botId: string, confirmationToken: string) => {
+    const { data, error: confirmError } = await supabase.functions.invoke('live-controls/confirm-arm', {
+      body: { bot_id: botId, confirmation_token: confirmationToken }
+    });
+    if (confirmError) throw confirmError;
+    return data as { live_armed: boolean; cooldown_ends_at: string; trace_id: string };
+  }, []);
+
+  const runConnectivityCheck = useCallback(async (botId: string) => {
+    const { data, error: checkError } = await supabase.functions.invoke('live-controls/connectivity-check', {
+      body: { bot_id: botId }
+    });
+    if (checkError) throw checkError;
+    return data as { success: boolean; data?: Record<string, unknown>; error?: Record<string, unknown> };
+  }, []);
+
+  const runDryRun = useCallback(async (botId: string) => {
+    const { data, error: dryRunError } = await supabase.functions.invoke('live-controls/dry-run', {
+      body: { bot_id: botId }
+    });
+    if (dryRunError) throw dryRunError;
+    return data as { success: boolean; data?: Record<string, unknown>; error?: Record<string, unknown> };
+  }, []);
+
+  const setKillSwitch = useCallback(async (enabled: boolean) => {
+    const { data, error: killError } = await supabase.functions.invoke('live-controls/set-kill-switch', {
+      body: { enabled }
+    });
+    if (killError) throw killError;
+    return data as { kill_switch_active: boolean; updated_at: string };
   }, []);
 
   // Fetch bot status with positions, orders, events
@@ -442,5 +496,11 @@ export function useBotController() {
     killBot,
     updateBot,
     deleteBot,
+    fetchLiveStatus,
+    requestLiveArm,
+    confirmLiveArm,
+    runConnectivityCheck,
+    runDryRun,
+    setKillSwitch,
   };
 }

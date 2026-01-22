@@ -327,8 +327,20 @@ serve(async (req) => {
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const user = await authenticateUser(req);
-    
+    const body = await req.json();
+    const { action, api_key_id, user_id, ...params } = body;
+
+    const serviceHeader = req.headers.get("x-service-role");
+    const usingServiceRole = serviceHeader && serviceHeader === supabaseServiceKey;
+
+    const user = usingServiceRole
+      ? { id: user_id as string, email: "service@internal" }
+      : await authenticateUser(req);
+
+    if (usingServiceRole && !user.id) {
+      throw new Error("user_id required for service role requests");
+    }
+
     // Check rate limit
     const rateLimit = checkRateLimit(user.id);
     if (!rateLimit.allowed) {
@@ -347,9 +359,6 @@ serve(async (req) => {
         }
       );
     }
-
-    const body = await req.json();
-    const { action, api_key_id, ...params } = body;
 
     console.log(`[exchange-kraken] User ${user.id} action: ${action}`);
 

@@ -20,7 +20,9 @@ import {
   Zap,
   RefreshCw,
   Plus,
-  Trash2
+  Trash2,
+  Wifi,
+  Timer
 } from 'lucide-react';
 import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
@@ -46,7 +48,13 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
     stopBot,
     killBot,
     updateBot,
-    deleteBot
+    deleteBot,
+    fetchLiveStatus,
+    requestLiveArm,
+    confirmLiveArm,
+    runConnectivityCheck,
+    runDryRun,
+    setKillSwitch
   } = useBotController();
   
   const { toast } = useToast();
@@ -55,6 +63,15 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
   const [newBotSymbol, setNewBotSymbol] = useState('BTC/USD');
   const [newBotStrategy, setNewBotStrategy] = useState('trend_following');
   const [newBotMode, setNewBotMode] = useState<'paper' | 'live'>('paper');
+  const [startMode, setStartMode] = useState<'paper' | 'live' | 'backtest'>('paper');
+  const [liveStatus, setLiveStatus] = useState<{
+    liveEnabled: boolean;
+    killSwitchActive: boolean;
+    secretsReady: boolean;
+    liveReady: boolean;
+    killSwitchActivatedAt?: string | null;
+  } | null>(null);
+  const [cooldownEndsAt, setCooldownEndsAt] = useState<string | null>(null);
   
   // Risk settings for new bot
   const [positionSize, setPositionSize] = useState(10);
@@ -71,6 +88,31 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
       onStatusChange(activeBot.status as 'running' | 'paused' | 'stopped');
     }
   }, [activeBot?.status, onStatusChange]);
+
+  useEffect(() => {
+    if (activeBot?.mode) {
+      setStartMode(activeBot.mode);
+    }
+  }, [activeBot?.mode]);
+
+  const refreshLiveStatus = useCallback(async () => {
+    try {
+      const status = await fetchLiveStatus();
+      setLiveStatus({
+        liveEnabled: status.live_enabled,
+        killSwitchActive: status.kill_switch_active,
+        secretsReady: status.secrets_ready,
+        liveReady: status.live_ready,
+        killSwitchActivatedAt: status.kill_switch_activated_at,
+      });
+    } catch (err) {
+      console.error('Failed to load live status', err);
+    }
+  }, [fetchLiveStatus]);
+
+  useEffect(() => {
+    refreshLiveStatus();
+  }, [refreshLiveStatus]);
 
   const handleCreateBot = useCallback(async () => {
     try {
@@ -104,10 +146,26 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
   const handleStartBot = useCallback(async () => {
     if (!activeBot) return;
     try {
-      await startBot(activeBot.id, activeBot.mode);
+      if (startMode === 'backtest') {
+        toast({
+          title: 'Backtest Mode',
+          description: 'Use the Backtest panel to run historical simulations.',
+        });
+        return;
+      }
+      if (startMode === 'live' && !liveStatus?.liveReady) {
+        toast({
+          title: 'Live Mode Unavailable',
+          description: 'Live trading is not configured or enabled.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      await startBot(activeBot.id, startMode);
       toast({
         title: 'Bot Started',
-        description: `${activeBot.name} is now running in ${activeBot.mode} mode`,
+        description: `${activeBot.name} is now running in ${startMode} mode`,
       });
     } catch (err) {
       toast({
@@ -116,7 +174,7 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
         variant: 'destructive',
       });
     }
-  }, [activeBot, startBot, toast]);
+  }, [activeBot, startBot, startMode, toast, liveStatus?.liveReady]);
 
   const handlePauseBot = useCallback(async () => {
     if (!activeBot) return;
@@ -216,6 +274,100 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
       });
     }
   }, [activeBot, updateBot, positionSize, stopLoss, takeProfit, maxDailyLoss, toast]);
+
+  const handleConnectivityCheck = useCallback(async () => {
+    if (!activeBot) return;
+    try {
+      const result = await runConnectivityCheck(activeBot.id);
+      if (!result.success) {
+        throw new Error(result.error?.message || 'Connectivity check failed');
+      }
+      toast({
+        title: 'Connectivity Check Passed',
+        description: `Balances OK. Ticker: ${result.data?.ticker_price ?? 'N/A'}`,
+      });
+    } catch (err) {
+      toast({
+        title: 'Connectivity Check Failed',
+        description: (err as Error).message,
+        variant: 'destructive',
+      });
+    }
+  }, [activeBot, runConnectivityCheck, toast]);
+
+  const handleDryRun = useCallback(async () => {
+    if (!activeBot) return;
+    try {
+      const result = await runDryRun(activeBot.id);
+      if (!result.success) {
+        throw new Error(result.error?.message || 'Dry-run failed');
+      }
+      toast({
+        title: 'Dry-run Submitted',
+        description: 'Kraken validated the order without placing it.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Dry-run Failed',
+        description: (err as Error).message,
+        variant: 'destructive',
+      });
+    }
+  }, [activeBot, runDryRun, toast]);
+
+  const handleArmLive = useCallback(async () => {
+    if (!activeBot) return;
+    try {
+      const request = await requestLiveArm(activeBot.id);
+      toast({
+        title: 'Live Arm Token Generated',
+        description: `Confirmation token: ${request.token}`,
+      });
+
+      const confirmation = window.prompt('Enter the confirmation token to ARM LIVE');
+      if (!confirmation) {
+        toast({
+          title: 'Live Arm Cancelled',
+          description: 'Confirmation token was not provided.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const result = await confirmLiveArm(activeBot.id, confirmation.trim());
+      setCooldownEndsAt(result.cooldown_ends_at);
+      await refreshLiveStatus();
+      toast({
+        title: 'Live Armed',
+        description: `Cooldown active until ${new Date(result.cooldown_ends_at).toLocaleTimeString()}`,
+      });
+    } catch (err) {
+      toast({
+        title: 'Live Arm Failed',
+        description: (err as Error).message,
+        variant: 'destructive',
+      });
+    }
+  }, [activeBot, requestLiveArm, confirmLiveArm, refreshLiveStatus, toast]);
+
+  const handleToggleKillSwitch = useCallback(async () => {
+    if (!liveStatus) return;
+    try {
+      const result = await setKillSwitch(!liveStatus.killSwitchActive);
+      await refreshLiveStatus();
+      toast({
+        title: result.kill_switch_active ? 'Kill Switch Activated' : 'Kill Switch Disabled',
+        description: result.kill_switch_active ? 'Live trading is now blocked.' : 'Live trading is now unblocked.',
+        variant: result.kill_switch_active ? 'destructive' : 'default',
+      });
+    } catch (err) {
+      toast({
+        title: 'Kill Switch Update Failed',
+        description: (err as Error).message,
+        variant: 'destructive',
+      });
+    }
+  }, [liveStatus, refreshLiveStatus, setKillSwitch, toast]);
 
   // Sync risk settings when active bot changes
   useEffect(() => {
@@ -353,7 +505,9 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="paper">Paper Trading</SelectItem>
-                    <SelectItem value="live">Live Trading</SelectItem>
+                    <SelectItem value="live" disabled={!liveStatus?.liveReady}>
+                      Live Trading {liveStatus?.liveReady ? '' : '(unavailable)'}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -388,9 +542,24 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
                 </div>
                 
                 <div className="grid gap-2">
+                  <div className="space-y-2 text-left">
+                    <Label>Run Mode</Label>
+                    <Select value={startMode} onValueChange={(v) => setStartMode(v as 'paper' | 'live' | 'backtest')}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="paper">Paper Trading</SelectItem>
+                        <SelectItem value="backtest">Backtest (use Backtest panel)</SelectItem>
+                        <SelectItem value="live" disabled={!liveStatus?.liveReady}>
+                          Live Trading {liveStatus?.liveReady ? '' : '(unavailable)'}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button 
                     onClick={handleStartBot} 
-                    disabled={botStatus === 'running'}
+                    disabled={botStatus === 'running' || (startMode === 'live' && !liveStatus?.liveReady)}
                     className="flex items-center gap-2"
                   >
                     <Play className="h-4 w-4" />
@@ -418,6 +587,71 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
               </div>
 
               <Separator />
+
+              <div className="space-y-4">
+                <h4 className="font-medium flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Live Controls
+                </h4>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Kill Switch</span>
+                  <Badge variant={liveStatus?.killSwitchActive ? 'destructive' : 'secondary'}>
+                    {liveStatus?.killSwitchActive ? 'ON' : 'OFF'}
+                  </Badge>
+                </div>
+                {liveStatus?.killSwitchActivatedAt && liveStatus.killSwitchActive && (
+                  <div className="text-xs text-muted-foreground">
+                    Activated at {new Date(liveStatus.killSwitchActivatedAt).toLocaleString()}
+                  </div>
+                )}
+                {cooldownEndsAt && (
+                  <div className="text-xs text-muted-foreground flex items-center gap-2">
+                    <Timer className="h-3 w-3" />
+                    Cooldown until {new Date(cooldownEndsAt).toLocaleTimeString()}
+                  </div>
+                )}
+                <div className="grid gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleConnectivityCheck}
+                    disabled={!activeBot?.api_key_id}
+                    className="flex items-center gap-2"
+                  >
+                    <Wifi className="h-4 w-4" />
+                    Connectivity Check
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleDryRun}
+                    disabled={!activeBot?.api_key_id}
+                    className="flex items-center gap-2"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Dry-run Live
+                  </Button>
+                  <Button
+                    onClick={handleArmLive}
+                    disabled={!activeBot?.api_key_id || !liveStatus?.liveReady || liveStatus?.killSwitchActive}
+                    className="flex items-center gap-2"
+                  >
+                    <AlertTriangle className="h-4 w-4" />
+                    ARM LIVE
+                  </Button>
+                  <Button
+                    variant={liveStatus?.killSwitchActive ? 'secondary' : 'destructive'}
+                    onClick={handleToggleKillSwitch}
+                    className="flex items-center gap-2"
+                  >
+                    <Shield className="h-4 w-4" />
+                    {liveStatus?.killSwitchActive ? 'Disable Kill Switch' : 'Activate Kill Switch'}
+                  </Button>
+                </div>
+                {!activeBot?.api_key_id && (
+                  <div className="text-xs text-muted-foreground">
+                    Configure a Kraken API key to enable live controls.
+                  </div>
+                )}
+              </div>
 
               <div className="space-y-4">
                 <h4 className="font-medium flex items-center gap-2">
