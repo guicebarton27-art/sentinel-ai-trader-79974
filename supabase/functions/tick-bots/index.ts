@@ -665,6 +665,7 @@ async function executeDecisionWithRisk(
   run: ExecutionRun | null,
   traceId: string,
   aiConfidenceOk: boolean,
+  forceExit = false,
 ): Promise<void> {
   const cooldownMinutes = parseNumber(Deno.env.get('COOLDOWN_MINUTES_AFTER_LOSS'), 30);
   const tradeWindowMinutes = 60;
@@ -680,10 +681,10 @@ async function executeDecisionWithRisk(
     maxPositionSize: Number(bot.max_position_size),
     maxLeverage: Number(bot.max_leverage),
     stopLossPct: Number(bot.stop_loss_pct),
-    tradesLastHour: riskState.tradesLastHour,
+    tradesLastHour: forceExit ? 0 : riskState.tradesLastHour,
     maxTradesPerHour,
-    cooldownActive: riskState.cooldownActive,
-    lossStreakExceeded: riskState.lossStreakExceeded,
+    cooldownActive: forceExit ? false : riskState.cooldownActive,
+    lossStreakExceeded: forceExit ? false : riskState.lossStreakExceeded,
     killSwitchActive: systemKillSwitch || riskState.killSwitchActive,
     liveTradingEnabled: parseBoolean(Deno.env.get('LIVE_TRADING_ENABLED'), false),
     marketDataFresh,
@@ -776,7 +777,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Stop loss triggered',
             trace_id: traceId,
-          }, marketData, run, traceId, true);
+          }, marketData, run, traceId, true, true);
           await logEvent(
             supabase,
             bot.id,
@@ -801,7 +802,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Take profit triggered',
             trace_id: traceId,
-          }, marketData, run, traceId, true);
+          }, marketData, run, traceId, true, true);
           return;
         }
       } else {
@@ -816,7 +817,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Stop loss triggered',
             trace_id: traceId,
-          }, marketData, run, traceId, true);
+          }, marketData, run, traceId, true, true);
           await logEvent(
             supabase,
             bot.id,
@@ -841,7 +842,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Take profit triggered',
             trace_id: traceId,
-          }, marketData, run, traceId, true);
+          }, marketData, run, traceId, true, true);
           return;
         }
       }
