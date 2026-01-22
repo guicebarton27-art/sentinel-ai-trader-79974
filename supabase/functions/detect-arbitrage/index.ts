@@ -11,6 +11,7 @@ interface ArbitrageOpportunity {
   profitPercentage: number;
   volume: number;
   timestamp: number;
+  prices: { [key: string]: number };
 }
 
 // Authenticate user and check role
@@ -47,6 +48,106 @@ async function authenticateUser(req: Request) {
   return { user, role };
 }
 
+// Calculate triangular arbitrage opportunities from real Kraken data
+function calculateTriangularArbitrage(tickers: any): ArbitrageOpportunity[] {
+  const opportunities: ArbitrageOpportunity[] = [];
+  const now = Date.now();
+  
+  // Define triangular paths and their trading fees
+  const triangularPaths = [
+    { 
+      path: ['BTC/USD', 'ETH/USD', 'ETH/BTC'],
+      pairs: ['XXBTZUSD', 'XETHZUSD', 'XETHXXBT'],
+      volumeKey: 'XXBTZUSD'
+    },
+    { 
+      path: ['BTC/USD', 'XRP/USD', 'XRP/BTC'],
+      pairs: ['XXBTZUSD', 'XXRPZUSD', 'XXRPXXBT'],
+      volumeKey: 'XXBTZUSD'
+    },
+    { 
+      path: ['ETH/USD', 'XRP/USD', 'XRP/ETH'],
+      pairs: ['XETHZUSD', 'XXRPZUSD', 'XETHXXRP'],
+      volumeKey: 'XETHZUSD'
+    }
+  ];
+  
+  const feePerTrade = 0.0026; // 0.26% Kraken fee
+  const totalFees = feePerTrade * 3;
+  
+  for (const { path, pairs, volumeKey } of triangularPaths) {
+    try {
+      // Check if all pairs exist
+      const allPairsExist = pairs.every(p => tickers[p]?.c?.[0]);
+      if (!allPairsExist) continue;
+      
+      // Get real prices from Kraken tickers
+      const prices: { [key: string]: number } = {};
+      pairs.forEach((p, i) => {
+        prices[path[i]] = parseFloat(tickers[p].c[0]);
+      });
+      
+      // Calculate forward path profit
+      // Start with $1000 USD
+      // Path: USD -> BTC -> ETH -> USD (for BTC/USD, ETH/USD, ETH/BTC path)
+      let amount = 1000;
+      
+      // Buy first asset with USD
+      const firstPrice = parseFloat(tickers[pairs[0]].c[0]);
+      amount = (amount / firstPrice) * (1 - feePerTrade);
+      
+      // Sell for second asset  
+      const secondPrice = parseFloat(tickers[pairs[1]].c[0]);
+      const crossRate = parseFloat(tickers[pairs[2]].c[0]);
+      
+      // For ETH/BTC path: we have BTC, buy ETH, then sell ETH for USD
+      amount = (amount / crossRate) * (1 - feePerTrade); // Now have ETH
+      amount = (amount * secondPrice) * (1 - feePerTrade); // Back to USD
+      
+      const profitPercentage = ((amount - 1000) / 1000) * 100;
+      
+      // Also check reverse path
+      let reverseAmount = 1000;
+      reverseAmount = (reverseAmount / secondPrice) * (1 - feePerTrade); // Buy ETH
+      reverseAmount = (reverseAmount * crossRate) * (1 - feePerTrade); // Sell for BTC
+      reverseAmount = (reverseAmount * firstPrice) * (1 - feePerTrade); // Sell BTC for USD
+      
+      const reverseProfitPercentage = ((reverseAmount - 1000) / 1000) * 100;
+      
+      // Get 24h volume from the main pair
+      const volume24h = parseFloat(tickers[volumeKey]?.v?.[1] || '0') * firstPrice;
+      
+      // Only include if profitable after fees (threshold: 0.05%)
+      if (profitPercentage > 0.05) {
+        opportunities.push({
+          path,
+          profitPercentage: Math.round(profitPercentage * 1000) / 1000,
+          volume: Math.round(volume24h),
+          timestamp: now,
+          prices
+        });
+      }
+      
+      if (reverseProfitPercentage > 0.05) {
+        opportunities.push({
+          path: [...path].reverse(),
+          profitPercentage: Math.round(reverseProfitPercentage * 1000) / 1000,
+          volume: Math.round(volume24h),
+          timestamp: now,
+          prices
+        });
+      }
+    } catch (e) {
+      console.error(`Error calculating path ${path.join(' -> ')}:`, e);
+    }
+  }
+  
+  // Sort by profit percentage descending
+  opportunities.sort((a, b) => b.profitPercentage - a.profitPercentage);
+  
+  return opportunities;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -57,69 +158,33 @@ serve(async (req) => {
     const { user, role } = await authenticateUser(req);
     console.log(`User ${user.id} (${role}) detecting arbitrage opportunities`);
 
-    console.log('Detecting arbitrage opportunities...');
+    console.log('Fetching real-time ticker data from Kraken...');
 
-    // Fetch ticker data from Kraken
+    // Fetch ticker data from Kraken for multiple pairs
     const krakenUrl = 'https://api.kraken.com/0/public/Ticker?pair=BTCUSD,ETHUSD,ETHBTC,XRPUSD,XRPBTC';
     const response = await fetch(krakenUrl);
     const data = await response.json();
 
     if (data.error && data.error.length > 0) {
-      throw new Error('Failed to fetch market data');
+      console.error('Kraken API error:', data.error);
+      throw new Error('Failed to fetch market data from Kraken');
     }
 
-    const opportunities: ArbitrageOpportunity[] = [];
-    
-    // Simulated triangular arbitrage detection
-    // In production, this would calculate actual arbitrage opportunities
     const tickers = data.result;
-    
-    // Example: BTC/USD -> ETH/USD -> ETH/BTC
-    if (tickers.XXBTZUSD && tickers.XETHZUSD && tickers.XETHXXBT) {
-      const btcUsd = parseFloat(tickers.XXBTZUSD.c[0]);
-      const ethUsd = parseFloat(tickers.XETHZUSD.c[0]);
-      const ethBtc = parseFloat(tickers.XETHXXBT.c[0]);
-      
-      // Calculate theoretical profit (simplified)
-      const theoreticalProfit = ((ethUsd / btcUsd) / ethBtc - 1) * 100;
-      const fees = 0.26 * 3; // 0.26% per trade * 3 trades
-      const netProfit = theoreticalProfit - fees;
-      
-      if (netProfit > 0.1) {
-        opportunities.push({
-          path: ["BTC/USD", "ETH/USD", "ETH/BTC"],
-          profitPercentage: netProfit,
-          volume: Math.floor(Math.random() * 50000) + 10000,
-          timestamp: Date.now()
-        });
-      }
-    }
+    console.log('Received tickers for pairs:', Object.keys(tickers));
 
-    // Add some additional opportunities with lower profit margins
-    const additionalOpportunities = [
-      {
-        path: ["XRP/USD", "BTC/USD", "XRP/BTC"],
-        profitPercentage: Math.random() * 0.3 + 0.05,
-        volume: Math.floor(Math.random() * 30000) + 5000,
-        timestamp: Date.now() - 60000
-      },
-      {
-        path: ["ETH/BTC", "XRP/ETH", "XRP/BTC"],
-        profitPercentage: Math.random() * 0.2 + 0.03,
-        volume: Math.floor(Math.random() * 20000) + 3000,
-        timestamp: Date.now() - 120000
-      }
-    ].filter(opp => opp.profitPercentage > 0.05);
+    // Calculate real arbitrage opportunities
+    const opportunities = calculateTriangularArbitrage(tickers);
 
-    opportunities.push(...additionalOpportunities);
-
-    console.log(`Found ${opportunities.length} arbitrage opportunities`);
+    console.log(`Found ${opportunities.length} real arbitrage opportunities`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         opportunities,
-        count: opportunities.length
+        count: opportunities.length,
+        source: 'Kraken API',
+        timestamp: new Date().toISOString()
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
