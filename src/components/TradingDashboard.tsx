@@ -30,6 +30,8 @@ import { PortfolioOverview } from './trading/PortfolioOverview';
 import { MarketData } from './trading/MarketData';
 import { BotControls } from './trading/BotControls';
 import { TradingChart } from './trading/TradingChart';
+import { PricePrediction } from './trading/PricePrediction';
+import { SentimentAnalysis } from './trading/SentimentAnalysis';
 import { StrategyEngine } from './trading/StrategyEngine';
 import { RiskEngine } from './trading/RiskEngine';
 import { ExecutionRouter } from './trading/ExecutionRouter';
@@ -43,6 +45,9 @@ import { MLPricePrediction } from './trading/MLPricePrediction';
 import { MLRiskEngine } from './trading/MLRiskEngine';
 import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { AutoMLAgent } from './trading/AutoMLAgent';
+import { AIStrategyEngine } from './trading/AIStrategyEngine';
+import { MetaLearnerPanel } from './trading/MetaLearnerPanel';
+import { TradeValidatorPanel } from './trading/TradeValidatorPanel';
 import { SystemStatusWidget } from './trading/SystemStatusWidget';
 import { LiveTradesFeed } from './trading/LiveTradesFeed';
 import { ProfitabilityBlueprint } from './trading/ProfitabilityBlueprint';
@@ -436,9 +441,28 @@ export const TradingDashboard = () => {
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-6 animate-in fade-in-50 duration-300">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Analytics</h2>
+                <p className="text-sm text-muted-foreground">Portfolio, market, and performance tracking.</p>
+              </div>
+            </div>
             <BacktestResults />
             <TradingChart />
             <MarketData />
+            <div className="pt-2">
+              <h3 className="text-base font-semibold">Advanced Analytics</h3>
+              <p className="text-sm text-muted-foreground">AI-powered insights, validation, and optimization.</p>
+            </div>
+            <AIStrategyEngine />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <PricePrediction />
+              <SentimentAnalysis />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <MetaLearnerPanel />
+              <TradeValidatorPanel />
+            </div>
           </TabsContent>
 
           <TabsContent value="execution" className="space-y-6 animate-in fade-in-50 duration-300">
