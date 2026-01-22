@@ -2,32 +2,62 @@
 
 Advanced AI-powered cryptocurrency trading platform with machine learning strategies, risk management, and real-time execution.
 
+## Current Status
+
+> **Last Updated:** January 2025
+
+### ✅ Implemented & Working
+- **Authentication**: Full auth flow with Supabase Auth
+- **Bot Lifecycle**: Create, start, pause, stop, kill bots with session tracking (`bot_runs`)
+- **Paper Trading**: Simulated order execution with position tracking
+- **Market Data**: Live ticker data from Kraken public API
+- **Historical Candles**: Fetch and store OHLC data in `historical_candles` table
+- **Risk Management**: Daily loss limits, position sizing, stop-loss enforcement, kill switch
+- **Backtesting**: Historical strategy validation with walk-forward analysis
+- **AI Strategy Engine**: Lovable AI-powered trade recommendations (fallback to baseline signals)
+- **Real-time UI**: Dashboard reflects database state via Supabase queries
+
+### 🚧 In Progress / Partially Implemented
+- **Live Trading**: Kraken integration exists but is explicitly disabled by default
+- **Reconciliation**: Position comparison endpoint exists but auto-fix is not implemented
+- **Multiple Exchanges**: Only Kraken is supported
+
+### 📋 Planned (Roadmap)
+- Binance/Coinbase exchange support
+- Advanced ML models (LSTM, transformer-based forecasting)
+- Mobile-responsive improvements
+- Alert notifications (email/SMS)
+
 ## 🚀 Features
 
 ### Core Trading
 - **Multi-Strategy Engine**: Momentum, Breakout, Mean Reversion strategies
-- **AI/ML Integration**: Sentiment analysis, price prediction, risk modeling
-- **AutoML Agent**: Automated model training and optimization
-- **Portfolio Optimization**: Real-time portfolio balancing
-- **Arbitrage Detection**: Cross-exchange opportunity identification
+- **AI/ML Integration**: AI-powered trade recommendations with confidence thresholds
+- **Portfolio Optimization**: Capital allocation across strategies
+- **Arbitrage Detection**: Cross-exchange opportunity identification (planned)
 
 ### Risk Management
-- **Real-time Risk Monitoring**: VaR, drawdown, correlation analysis
-- **Position Limits**: Automated enforcement of risk parameters
-- **Emergency Controls**: Circuit breakers and kill switches
-- **Meta-Learning**: Adaptive strategy selection
+- **Real-time Risk Monitoring**: Position limits, daily loss tracking
+- **Emergency Controls**: Global kill switch at user and system level
+- **Paper Trading Default**: All new bots start in paper mode
 
 ### Execution
-- **Multi-Exchange Support**: Kraken (primary), extensible to others
+- **Kraken Support**: Primary exchange integration
 - **Smart Order Routing**: Optimal execution paths
-- **Low-Latency**: Sub-20ms execution latency
-- **Fill Rate Optimization**: 98%+ fill rates
+- **Session Tracking**: Bot runs recorded with heartbeat and metrics
 
 ### Analytics
 - **Backtesting Engine**: Historical strategy validation
 - **Performance Metrics**: Sharpe ratio, drawdown, win rate
-- **ML Price Prediction**: LSTM-based forecasting
-- **Sentiment Analysis**: News and social media integration
+- **Walk-Forward Analysis**: Out-of-sample validation
+
+## Performance Targets
+
+> ⚠️ These are **targets**, not measured guarantees. Actual performance depends on market conditions, network latency, and strategy configuration.
+
+- **Latency Target**: <100ms for paper trades, <500ms for live trades
+- **Uptime Target**: 99% for scheduled tick processing
+- **Fill Rate**: Depends on exchange liquidity (paper trades = 100% simulated fill)
 
 ## 🛠️ Technology Stack
 
@@ -124,11 +154,11 @@ src/
 │   │   ├── RiskEngine.tsx
 │   │   ├── ExecutionRouter.tsx
 │   │   ├── BacktestPanel.tsx
-│   │   ├── AutoMLAgent.tsx
 │   │   └── ...
 │   ├── auth/              # Authentication
 │   └── ui/                # Shadcn UI components
 ├── hooks/                 # Custom React hooks
+├── services/              # API services (marketDataService)
 ├── integrations/          # Supabase integration
 ├── lib/                   # Utilities
 └── pages/                 # Route pages
@@ -138,18 +168,19 @@ supabase/
 └── migrations/            # Database migrations
 ```
 
-### Architecture Map (Data Flow)
+### Data Flow
 
 ```
-MarketData → AI Strategy → Signal/Fallback → RiskManager → Execution → Portfolio → Reporting/Alerts
-          (tick-bots)   (ai-strategy)       (shared)        (tick-bots)  (DB)       (bot_events)
+Kraken API → Market Data Service → UI Components
+                    ↓
+              historical_candles (Supabase)
+                    ↓
+tick-bots → Strategy Engine → Risk Check → Order Execution → positions/orders
+                    ↓
+              bot_runs (session tracking)
+                    ↓
+              bot_events (audit log)
 ```
-
-Canonical decision path:
-1. `tick-bots` fetches market data (Kraken public API or deterministic fallback).
-2. AI strategy engine proposes a decision; if unavailable, the baseline signal is used as a deterministic fallback.
-3. RiskManager enforces limits and kill switch before any order is placed.
-4. Orders/positions are persisted and events are logged with a trace ID.
 
 ### AI Resilience Controls
 
@@ -157,49 +188,38 @@ Edge functions apply timeouts, retries, and a circuit breaker when calling the A
 
 - `AI_TIMEOUT_MS` (default 8000)
 - `AI_MAX_RETRIES` (default 2)
-- `AI_RETRY_BACKOFF_MS` (default 500)
-- `AI_CIRCUIT_BREAKER_THRESHOLD` (default 3)
-- `AI_CIRCUIT_BREAKER_RESET_MS` (default 60000)
 - `AI_STRATEGY_ENABLED` (default true)
 - `AI_CONFIDENCE_THRESHOLD` (default 0.55)
-- `AI_SMOKE_TEST_ENABLED` (default true)
 
 ## 📊 API Integration
 
 ### Kraken API Setup
 1. Generate API keys at https://www.kraken.com/u/security/api
-2. Navigate to "Settings" tab
+2. Navigate to "Settings" tab in the app
 3. Add API key and secret
 4. Enable required permissions:
    - Query funds
    - Query open/closed orders
-   - Create & cancel orders
+   - Create & cancel orders (for live trading)
 
 ### Supported Exchanges
-- ✅ Kraken (fully supported)
-- 🚧 Binance (planned)
-- 🚧 Coinbase (planned)
+- ✅ Kraken (implemented)
+- 📋 Binance (planned)
+- 📋 Coinbase (planned)
 
 ## 🔐 Security
 
-- **API Keys**: Encrypted storage in Supabase
+- **API Keys**: Encrypted storage in Supabase (AES-GCM)
 - **Authentication**: Supabase Auth with JWT
-- **Rate Limiting**: Built-in exchange API rate limiting
-- **Paper Trading**: Test strategies without risk
-- **Server-side Secrets**: Service role keys are only used in workers/edge functions (never shipped to clients)
-- **Kill Switch**: Live execution is disabled by default and blocked when the kill switch is on
-
-## 📈 Performance
-
-- **Latency**: <20ms execution time
-- **Fill Rate**: 98%+ average
-- **Uptime**: 99.9% target
-- **Backtests**: Historical data from 2020+
+- **Rate Limiting**: Built-in exchange API rate limiting (15 req/min per user)
+- **Paper Trading**: Default mode for all new bots
+- **Server-side Secrets**: Service role keys only used in edge functions
+- **Kill Switch**: Global and per-user emergency stop
 
 ## 🧪 Testing
 
 ```bash
-# Run tests (Deno-powered)
+# Run edge function tests (Deno)
 npm test
 
 # Build for production
@@ -211,15 +231,14 @@ npm run preview
 
 ## 🚀 Deployment
 
-### Netlify (Recommended)
-1. Connect GitHub repository
-2. Set environment variables
-3. Deploy automatically on push
+### Lovable (Recommended)
+The app is designed to be deployed via Lovable with built-in Supabase Cloud integration.
 
 ### Manual Deployment
 ```bash
 npm run build
 # Upload dist/ folder to hosting provider
+# Configure environment variables
 ```
 
 ## 📝 License
@@ -249,12 +268,12 @@ Cryptocurrency trading involves significant risk. This software is provided "as 
 1. Install the Supabase CLI and Deno (required for edge function tests).
 2. Copy `.env.example` to `.env` and fill in required values.
 
-### Start local development (two commands)
+### Start local development
 ```bash
 supabase start
 npm run dev:all
 ```
-This starts the UI, edge functions, and the worker loop. The worker invokes `tick-bots` on a schedule.
+This starts the UI, edge functions, and the worker loop.
 
 ### Paper trading (default)
 1. Ensure `LIVE_TRADING_ENABLED=false` and `KILL_SWITCH_ENABLED=true` in `.env`.
@@ -265,15 +284,24 @@ This starts the UI, edge functions, and the worker loop. The worker invokes `tic
 ```bash
 npm run backtest
 ```
-Outputs are written to `backtest-output/` (summary JSON + trades CSV). Use environment variables in `.env` to customize the run window and strategy parameters.
+Outputs are written to `backtest-output/` (summary JSON + trades CSV).
 
 ### Enable live trading (explicit opt-in)
 1. Set `LIVE_TRADING_ENABLED=true` and `KILL_SWITCH_ENABLED=false`.
-2. Add exchange API keys in the UI (stored server-side).
-3. Start a bot in **Live** mode. The kill switch and risk limits remain enforced.
+2. Add exchange API keys in the UI (stored server-side, encrypted).
+3. Start a bot in **Live** mode. Risk limits remain enforced.
+
+### Reconciliation
+Call the `reconcile-positions` edge function to compare DB positions with exchange:
+```bash
+curl -X POST "${SUPABASE_URL}/functions/v1/reconcile-positions" \
+  -H "Authorization: Bearer ${USER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"api_key_id": "your-api-key-id", "dry_run": true}'
+```
 
 ### Health & Observability
-Use the `health` edge function to check scheduler status, error counts, and bot health:
+Use the `health` edge function to check scheduler status:
 ```
 ${SUPABASE_URL}/functions/v1/health
 ```

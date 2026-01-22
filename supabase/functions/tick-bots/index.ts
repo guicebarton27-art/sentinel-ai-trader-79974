@@ -635,8 +635,77 @@ async function recordRiskRejection(
     .single();
 }
 
+// Upsert bot_runs entry for session tracking
+async function upsertBotRun(
+  supabase: SupabaseClient,
+  bot: Bot,
+  ordersPlaced: number = 0,
+  errorOccurred: boolean = false
+): Promise<void> {
+  try {
+    // Check for existing running session
+    const { data: existingRun } = await supabase
+      .from('bot_runs')
+      .select('id, tick_count, total_trades, error_count')
+      .eq('bot_id', bot.id)
+      .eq('status', 'running')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingRun) {
+      // Update existing run
+      await supabase
+        .from('bot_runs')
+        .update({
+          last_tick_at: new Date().toISOString(),
+          last_heartbeat_at: new Date().toISOString(),
+          tick_count: (existingRun.tick_count || 0) + 1,
+          total_trades: (existingRun.total_trades || 0) + ordersPlaced,
+          error_count: errorOccurred ? (existingRun.error_count || 0) + 1 : existingRun.error_count,
+          total_pnl: bot.total_pnl,
+          ending_capital: bot.current_capital,
+        } as unknown)
+        .eq('id', existingRun.id);
+    } else {
+      // Create new run
+      await supabase
+        .from('bot_runs')
+        .insert([{
+          bot_id: bot.id,
+          user_id: bot.user_id,
+          mode: bot.mode,
+          status: 'running',
+          started_at: new Date().toISOString(),
+          starting_capital: bot.current_capital,
+          last_tick_at: new Date().toISOString(),
+          last_heartbeat_at: new Date().toISOString(),
+          tick_count: 1,
+          total_trades: ordersPlaced,
+          error_count: errorOccurred ? 1 : 0,
+          strategy_config: bot.strategy_config,
+          risk_config: {
+            max_position_size: bot.max_position_size,
+            max_daily_loss: bot.max_daily_loss,
+            stop_loss_pct: bot.stop_loss_pct,
+            take_profit_pct: bot.take_profit_pct,
+          },
+        }] as unknown[]);
+    }
+  } catch (err) {
+    logError({
+      component: 'tick-bots',
+      message: 'Failed to upsert bot_runs',
+      context: { bot_id: bot.id, error: (err as Error).message },
+    });
+  }
+}
+
 // Process a single bot tick
 async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void> {
+  let ordersPlaced = 0;
+  let errorOccurred = false;
+  
   try {
     const traceId = crypto.randomUUID();
 
@@ -784,6 +853,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
       const riskCheck = evaluateRisk(decision, riskInputs);
 
       if (riskCheck.allowed) {
+        ordersPlaced++;
         if (bot.mode === 'paper') {
           await executePaperTrade(supabase, bot, decision);
         } else {
@@ -827,7 +897,11 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
         { capital: Number(bot.current_capital), pnl: Number(bot.total_pnl), price: marketData.price }
       );
     }
+
+    // Update bot_runs session tracking
+    await upsertBotRun(supabase, bot, ordersPlaced, false);
   } catch (err: unknown) {
+    errorOccurred = true;
     const error = err as Error;
     logError({
       component: 'tick-bots',
@@ -854,6 +928,9 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
       'error',
       { error: error.message, stack: error.stack }
     );
+
+    // Update bot_runs with error
+    await upsertBotRun(supabase, bot, 0, true);
   }
 }
 
