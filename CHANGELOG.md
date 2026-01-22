@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Bot Lifecycle Integration Tests**: New Edge Function `bot-lifecycle-test` that validates the complete bot lifecycle: create → start → trade → stop → verify state
+- **Extended Trading Unit Tests**: Added comprehensive Deno tests for signal generation, risk evaluation, state machine validation
 - Comprehensive project documentation (README, CONTRIBUTING, DEPLOYMENT)
 - GitHub Actions CI/CD pipeline
 - Issue and PR templates
@@ -18,8 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced README with detailed feature list and setup instructions
 - Improved project structure documentation
 
+### Security
+- Added RLS policies for backtest tables with user_id columns
+- Fixed run-backtest edge function to include user_id for proper data isolation
+
 ### Fixed
 - Build configuration optimizations
+- TradingDashboard now fetches real strategy data instead of hardcoded mock data
 
 ## [1.0.0] - 2024-12-31
 
