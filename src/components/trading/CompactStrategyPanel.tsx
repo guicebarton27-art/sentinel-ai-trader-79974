@@ -41,6 +41,7 @@ const getStrategyIcon = (type: Strategy['type']) => {
     case 'mean-revert': return Target;
     case 'automl': return Brain;
     case 'rl': return Zap;
+    default: return Brain;
   }
 };
 
@@ -50,6 +51,7 @@ const getStatusColor = (status: Strategy['status']) => {
     case 'paused': return 'text-warning';
     case 'training': return 'text-primary';
     case 'disabled': return 'text-muted-foreground';
+    default: return 'text-muted-foreground';
   }
 };
 
@@ -59,6 +61,7 @@ const getStatusBadgeVariant = (status: Strategy['status']) => {
     case 'paused': return 'secondary';
     case 'training': return 'outline';
     case 'disabled': return 'outline';
+    default: return 'outline';
   }
 };
 
