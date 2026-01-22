@@ -9,12 +9,26 @@ export default defineConfig(({ mode }) => {
   // fails to expose VITE_* vars at runtime.
   const env = loadEnv(mode, process.cwd(), "");
 
-  const supabaseUrl = env.VITE_SUPABASE_URL || env.SUPABASE_URL || "";
+  // In some preview environments, vars are provided via process.env instead of .env files.
+  const FALLBACK_SUPABASE_URL = "https://swpjpzsnqpamdchdlkpf.supabase.co";
+  const FALLBACK_SUPABASE_PUBLISHABLE_KEY =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3cGpwenNucXBhbWRjaGRsa3BmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxNDMzOTAsImV4cCI6MjA3NTcxOTM5MH0.dKgKJr6sufBjRLg6PAPENkpOPqd24kEJj6AnVTma92g";
+
+  const supabaseUrl =
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    env.VITE_SUPABASE_URL ||
+    env.SUPABASE_URL ||
+    FALLBACK_SUPABASE_URL;
+
   const supabasePublishableKey =
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
     env.VITE_SUPABASE_PUBLISHABLE_KEY ||
     env.SUPABASE_PUBLISHABLE_KEY ||
     env.SUPABASE_ANON_KEY ||
-    "";
+    FALLBACK_SUPABASE_PUBLISHABLE_KEY;
 
   return {
     server: {
