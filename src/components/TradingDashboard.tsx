@@ -108,25 +108,38 @@ export const TradingDashboard = () => {
     }))
   };
 
+  // Calculate execution metrics from real order data
+  const filledOrders = recentOrders.filter(o => o.status === 'filled');
+  const todaysOrders = recentOrders.filter(o => {
+    const orderDate = new Date(o.created_at);
+    const today = new Date();
+    return orderDate.toDateString() === today.toDateString();
+  });
+  
   const executionMetrics = {
-    fillRate: 98.2,
+    fillRate: recentOrders.length > 0 
+      ? Math.round((filledOrders.length / recentOrders.length) * 100 * 10) / 10
+      : 98.2,
     slippage: 0.08,
-    latency: health?.last_heartbeat_age_seconds ? Math.min(Math.round(health.last_heartbeat_age_seconds * 1000 / 60), 20) : 11,
-    ordersToday: recentOrders.filter(o => {
-      const orderDate = new Date(o.created_at);
-      const today = new Date();
-      return orderDate.toDateString() === today.toDateString();
-    }).length
+    latency: health?.last_heartbeat_age_seconds 
+      ? Math.min(Math.round(health.last_heartbeat_age_seconds * 1000 / 60), 20) 
+      : 11,
+    ordersToday: todaysOrders.length
   };
 
+  // Calculate risk metrics from real position/bot data
+  const positionLimit = activeBot?.starting_capital ? activeBot.starting_capital * (activeBot.max_position_size || 0.1) : 10000;
+  
   const riskMetrics = {
     var: 2.1,
-    maxDrawdown: 12.5,
+    maxDrawdown: activeBot?.starting_capital && activeBot.current_capital
+      ? Math.round(((activeBot.starting_capital - Math.min(activeBot.current_capital, activeBot.starting_capital)) / activeBot.starting_capital) * 100 * 10) / 10
+      : 0,
     correlationRisk: 72,
-    positionSize: 75000,
-    positionLimit: 100000,
-    dailyLoss: -1200,
-    dailyLossLimit: 5000
+    positionSize: totalPositionValue,
+    positionLimit: positionLimit,
+    dailyLoss: activeBot?.daily_pnl || 0,
+    dailyLossLimit: activeBot?.max_daily_loss || 5000
   };
 
   // Strategies now come from useBotController or deployed_strategies table
@@ -366,7 +379,7 @@ export const TradingDashboard = () => {
 
         {/* Strategy Panel */}
         {!minimalMode && (
-          <CompactStrategyPanel strategies={strategies} />
+          <CompactStrategyPanel />
         )}
 
         {/* Main Content Tabs */}

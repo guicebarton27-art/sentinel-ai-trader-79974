@@ -41,14 +41,15 @@ This audit identifies the sources of truth and data flow integrity across the tr
 | `BacktestPanel.tsx` | `backtest_runs`, `backtest_trades` | ✅ Real data |
 | `PortfolioOverview.tsx` | `positions`, `orders` | ✅ Real data |
 
-### Visual-Only Components (Acceptable Simulation)
+### Visual-Only Components (Real Data with Visualization)
 
 | Component | Purpose | Status |
 |-----------|---------|--------|
-| `AICommandCenter.tsx` | Neural signal visualization | ✅ Demo |
-| `NeuralDecisionViz.tsx` | Network activation display | ✅ Demo |
-| `AutonomousAgentViz.tsx` | Agent confidence animation | ✅ Demo |
-| `AIStrategyEngine.tsx` | Price simulation for testing | ✅ Demo |
+| `AICommandCenter.tsx` | Neural signal visualization | ✅ Wired to `bot_events`, `sentiment_data` |
+| `NeuralDecisionViz.tsx` | Network activation display | ✅ Wired to `ml_predictions`, `sentiment_data` |
+| `AutonomousAgentViz.tsx` | Agent confidence animation | ✅ Wired to `bots`, `orders`, `positions`, `ml_predictions` |
+| `AIStrategyEngine.tsx` | AI strategy execution | ✅ Wired to `ai-strategy-engine` edge function |
+| `CompactStrategyPanel.tsx` | Strategy overview | ✅ Wired to `deployed_strategies`, `bots` |
 
 ---
 
