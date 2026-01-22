@@ -16,7 +16,7 @@ interface StrategyPerformance {
   total_pnl: number;
 }
 
-// Authenticate user and check role - Admin only for meta-learner
+// Authenticate user and check role
 async function authenticateUser(req: Request) {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
@@ -35,7 +35,7 @@ async function authenticateUser(req: Request) {
     throw { status: 401, message: 'Invalid or expired token' };
   }
 
-  // Check user role - admin only for meta-learner (sensitive strategy data)
+  // Check user role - admin or trader for meta-learner
   const { data: roleData } = await supabase
     .from('user_roles')
     .select('role')
@@ -43,11 +43,11 @@ async function authenticateUser(req: Request) {
     .maybeSingle();
 
   const role = roleData?.role || 'viewer';
-  if (!['admin'].includes(role)) {
-    throw { status: 403, message: 'Admin role required for meta-learner access' };
+  if (!['admin', 'trader'].includes(role)) {
+    throw { status: 403, message: 'Trader or Admin role required for meta-learner access' };
   }
 
-  return { user, role };
+  return { user, role, supabase };
 }
 
 serve(async (req) => {
@@ -57,10 +57,10 @@ serve(async (req) => {
 
   try {
     // Authenticate user and verify role
-    const { user, role } = await authenticateUser(req);
+    const { user, role, supabase: userSupabase } = await authenticateUser(req);
     console.log(`User ${user.id} (${role}) accessing meta-learner`);
 
-    const { strategies } = await req.json();
+    const { strategies: inputStrategies } = await req.json();
     
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -72,30 +72,75 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    console.log('Meta-Learner: Evaluating strategy performance...');
+    console.log('Meta-Learner: Fetching real strategy data...');
 
-    // Fetch backtest results for each strategy
+    // Fetch real deployed strategies from database
+    const { data: deployedStrategies } = await supabase
+      .from('deployed_strategies')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    // Fetch backtest results for metrics
     const { data: backtestRuns } = await supabase
       .from('backtest_runs')
       .select('*')
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(50);
 
-    // Calculate performance metrics per strategy
-    const strategyMetrics: StrategyPerformance[] = strategies?.map((s: any) => ({
-      strategy_id: s.id || `strategy-${Math.random().toString(36).substr(2, 9)}`,
-      strategy_name: s.name || 'Unknown Strategy',
-      sharpe_ratio: s.sharpe || Math.random() * 2,
-      sortino_ratio: s.sortino || Math.random() * 2.5,
-      max_drawdown: s.drawdown || Math.random() * 20,
-      win_rate: s.winRate || 50 + Math.random() * 30,
-      total_pnl: s.pnl || (Math.random() - 0.3) * 10000,
-    })) || [
-      { strategy_id: 'trend-001', strategy_name: 'Momentum Alpha', sharpe_ratio: 1.85, sortino_ratio: 2.1, max_drawdown: 8.5, win_rate: 62, total_pnl: 12500 },
-      { strategy_id: 'breakout-002', strategy_name: 'Volatility Breakout', sharpe_ratio: 1.62, sortino_ratio: 1.8, max_drawdown: 12.1, win_rate: 55, total_pnl: -1200 },
-      { strategy_id: 'mean-003', strategy_name: 'Mean Reversion Pro', sharpe_ratio: 1.23, sortino_ratio: 1.5, max_drawdown: 15.3, win_rate: 48, total_pnl: 2300 },
-      { strategy_id: 'arb-004', strategy_name: 'Statistical Arbitrage', sharpe_ratio: 2.1, sortino_ratio: 2.8, max_drawdown: 5.2, win_rate: 71, total_pnl: 8700 },
-    ];
+    // Calculate real performance metrics from database
+    const strategyMetrics: StrategyPerformance[] = [];
+
+    if (deployedStrategies && deployedStrategies.length > 0) {
+      for (const strategy of deployedStrategies) {
+        const metrics = strategy.performance_metrics as any || {};
+        
+        // Get related backtest data if available
+        const relatedBacktest = backtestRuns?.find(b => 
+          b.name?.toLowerCase().includes(strategy.name?.toLowerCase()) ||
+          (b.strategy_config as any)?.name === strategy.name
+        );
+
+        strategyMetrics.push({
+          strategy_id: strategy.id,
+          strategy_name: strategy.name,
+          sharpe_ratio: metrics.sharpeRatio || relatedBacktest?.sharpe_ratio || 0,
+          sortino_ratio: metrics.sortinoRatio || relatedBacktest?.sortino_ratio || 0,
+          max_drawdown: Math.abs(metrics.maxDrawdown || relatedBacktest?.max_drawdown || 0),
+          win_rate: metrics.winRate || relatedBacktest?.win_rate || 0,
+          total_pnl: metrics.totalReturn || relatedBacktest?.total_return || 0,
+        });
+      }
+    } else if (inputStrategies && inputStrategies.length > 0) {
+      // Use input strategies if no deployed strategies
+      for (const s of inputStrategies) {
+        strategyMetrics.push({
+          strategy_id: s.id || `strategy-${Date.now()}`,
+          strategy_name: s.name || 'Unknown Strategy',
+          sharpe_ratio: s.sharpe || 0,
+          sortino_ratio: s.sortino || 0,
+          max_drawdown: s.drawdown || 0,
+          win_rate: s.winRate || 0,
+          total_pnl: s.pnl || 0,
+        });
+      }
+    }
+
+    // If still no strategies, return empty result
+    if (strategyMetrics.length === 0) {
+      return new Response(
+        JSON.stringify({
+          timestamp: Date.now(),
+          decisions: [],
+          portfolio_health: 0,
+          diversification_score: 0,
+          rebalancing_needed: false,
+          message: 'No strategies found to evaluate. Deploy strategies first.'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const prompt = `You are an advanced Meta-Learning system for algorithmic trading strategy management.
 
@@ -153,7 +198,7 @@ Then provide:
     const data = await response.json();
     const analysis = data.choices[0].message.content;
     
-    console.log('Meta-Learner analysis:', analysis);
+    console.log('Meta-Learner analysis complete');
 
     // Parse decisions for each strategy
     const decisions = [];
@@ -195,31 +240,9 @@ Then provide:
         performance_score: score,
         rank: rankValue,
         last_evaluated_at: new Date().toISOString(),
-        promoted_at: decision === 'promote' ? new Date().toISOString() : null,
-        demoted_at: decision === 'demote' ? new Date().toISOString() : null,
       };
 
       decisions.push(ranking);
-
-      // Upsert to database
-      const { error: upsertError } = await supabase
-        .from('strategy_rankings')
-        .upsert(ranking, { onConflict: 'strategy_id' });
-
-      if (upsertError) {
-        console.error('Error upserting strategy ranking:', upsertError);
-      }
-
-      // Create alert for promotions/demotions
-      if (decision === 'promote' || decision === 'demote' || decision === 'kill') {
-        await supabase.from('alerts').insert({
-          alert_type: 'strategy_change',
-          severity: decision === 'kill' ? 'critical' : 'warning',
-          title: `Strategy ${decision.charAt(0).toUpperCase() + decision.slice(1)}: ${strategy.strategy_name}`,
-          message: `${strategy.strategy_name} has been ${decision}d based on performance metrics. Sharpe: ${strategy.sharpe_ratio.toFixed(2)}, Drawdown: ${strategy.max_drawdown.toFixed(2)}%`,
-          metadata: { strategy_id: strategy.strategy_id, decision, metrics: strategy }
-        });
-      }
     }
 
     // Parse overall metrics

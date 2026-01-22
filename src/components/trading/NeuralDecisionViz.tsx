@@ -11,6 +11,7 @@ import {
   Radio
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useTicker } from "@/hooks/useMarketData";
 
 interface NeuronLayer {
   nodes: number[];
@@ -50,6 +51,9 @@ export const NeuralDecisionViz = () => {
   const [pulsingConnections, setPulsingConnections] = useState<Set<string>>(new Set());
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [dataPoints, setDataPoints] = useState(0);
+  
+  // Get real ticker data
+  const { ticker } = useTicker({ symbol: 'BTC/USD', refreshInterval: 5000 });
 
   // Fetch real data from ml_predictions and sentiment_data
   useEffect(() => {
@@ -60,71 +64,123 @@ export const NeuralDecisionViz = () => {
           .from('ml_predictions')
           .select('*')
           .order('created_at', { ascending: false })
-          .limit(1);
+          .limit(5);
 
         // Fetch latest sentiment data
         const { data: sentiment } = await supabase
           .from('sentiment_data')
           .select('*')
           .order('created_at', { ascending: false })
-          .limit(1);
+          .limit(5);
 
         // Get bot events count for activity
         const { count: eventCount } = await supabase
           .from('bot_events')
           .select('*', { count: 'exact', head: true });
 
+        // Get recent orders for order flow
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('side, quantity, status')
+          .order('created_at', { ascending: false })
+          .limit(20);
+
         setDataPoints(eventCount || 0);
 
-        if (predictions && predictions.length > 0) {
-          const pred = predictions[0];
-          const predValue = pred.prediction_value as any;
-          
-          // Determine action from prediction
-          let action: "BUY" | "SELL" | "HOLD" = "HOLD";
-          if (predValue?.direction === 'up' && (pred.confidence || 0) > 0.6) {
+        // Calculate real metrics
+        const pred = predictions?.[0];
+        const predValue = pred?.prediction_value as any;
+        
+        // Sentiment from DB
+        const avgSentiment = sentiment && sentiment.length > 0
+          ? sentiment.reduce((sum, s) => sum + (s.sentiment_score || 0), 0) / sentiment.length
+          : 0;
+        
+        // Order flow from real orders
+        const buyOrders = orders?.filter(o => o.side === 'buy').length || 0;
+        const sellOrders = orders?.filter(o => o.side === 'sell').length || 0;
+        const totalOrders = buyOrders + sellOrders;
+        const orderFlowBias = totalOrders > 0 ? buyOrders / totalOrders : 0.5;
+        
+        // Price momentum from ticker
+        const priceChange = ticker?.change24h || 0;
+        const momentum = Math.min(1, Math.max(0, 0.5 + priceChange / 20));
+        
+        // Volume signal from change (as proxy)
+        const volumeSignal = Math.min(1, Math.max(0, 0.5 + Math.abs(priceChange) / 10));
+        
+        // Volatility from prediction
+        let volatility = 0.5;
+        if (predValue?.volatility === 'high') volatility = 0.8;
+        else if (predValue?.volatility === 'low') volatility = 0.2;
+        else if (ticker) {
+          // Calculate from price change as proxy for volatility
+          volatility = Math.min(1, Math.abs(priceChange) / 5);
+        }
+        
+        // RSI approximation from price change
+        const rsi = Math.min(1, Math.max(0, 0.5 + priceChange / 15));
+        
+        // Determine action from real signals
+        let action: "BUY" | "SELL" | "HOLD" = "HOLD";
+        let confidence = 50;
+        
+        if (pred && pred.confidence) {
+          confidence = Math.round(pred.confidence * 100);
+          if (predValue?.direction === 'up' && pred.confidence > 0.6) {
             action = "BUY";
-          } else if (predValue?.direction === 'down' && (pred.confidence || 0) > 0.6) {
+          } else if (predValue?.direction === 'down' && pred.confidence > 0.6) {
             action = "SELL";
           }
-
-          // Calculate factors from real data
-          const sentimentScore = sentiment?.[0]?.sentiment_score || 0;
-          const changePercent = predValue?.change_percent || 0;
-          const volatility = predValue?.volatility === 'high' ? 0.8 : predValue?.volatility === 'low' ? 0.2 : 0.5;
-
-          setDecision({
-            action,
-            confidence: Math.round((pred.confidence || 0.5) * 100),
-            factors: [
-              { name: "Price Momentum", weight: 0.25, value: Math.min(1, Math.max(0, 0.5 + changePercent / 10)) },
-              { name: "Volume Signal", weight: 0.20, value: Math.min(1, Math.max(0, 0.5 + Math.random() * 0.3)) },
-              { name: "Sentiment Score", weight: 0.20, value: Math.min(1, Math.max(0, 0.5 + sentimentScore)) },
-              { name: "Technical RSI", weight: 0.15, value: Math.min(1, Math.max(0, 0.5 + Math.random() * 0.2)) },
-              { name: "Volatility", weight: 0.10, value: volatility },
-              { name: "Order Flow", weight: 0.10, value: Math.min(1, Math.max(0, pred.confidence || 0.5)) }
-            ]
-          });
-
-          setLastUpdate(new Date());
+        } else if (ticker) {
+          // Fallback: use price momentum
+          if (priceChange > 2 && avgSentiment > 0.2) {
+            action = "BUY";
+            confidence = Math.round(50 + priceChange * 5);
+          } else if (priceChange < -2 && avgSentiment < -0.2) {
+            action = "SELL";
+            confidence = Math.round(50 + Math.abs(priceChange) * 5);
+          }
         }
 
-        // Update activations based on real confidence
-        const newActivations = layers.map(layer => 
-          layer.nodes.map(() => {
-            const baseActivation = (predictions?.[0]?.confidence || 0.5);
-            return Math.min(1, Math.max(0, baseActivation + (Math.random() - 0.5) * 0.3));
+        setDecision({
+          action,
+          confidence: Math.min(95, Math.max(30, confidence)),
+          factors: [
+            { name: "Price Momentum", weight: 0.25, value: momentum },
+            { name: "Volume Signal", weight: 0.20, value: volumeSignal },
+            { name: "Sentiment Score", weight: 0.20, value: Math.min(1, Math.max(0, 0.5 + avgSentiment)) },
+            { name: "Technical RSI", weight: 0.15, value: rsi },
+            { name: "Volatility", weight: 0.10, value: volatility },
+            { name: "Order Flow", weight: 0.10, value: orderFlowBias }
+          ]
+        });
+
+        setLastUpdate(new Date());
+
+        // Update activations based on real data (deterministic based on confidence)
+        const baseConfidence = confidence / 100;
+        const newActivations = layers.map((layer, layerIdx) => 
+          layer.nodes.map((_, nodeIdx) => {
+            // Create deterministic but varied activation
+            const layerFactor = 0.8 + (layerIdx / layers.length) * 0.2;
+            const nodeFactor = (nodeIdx + 1) / layer.nodes.length;
+            return Math.min(1, Math.max(0.1, baseConfidence * layerFactor * (0.7 + nodeFactor * 0.3)));
           })
         );
         setActivations(newActivations);
 
-        // Pulse connections based on activity
+        // Pulse connections based on real activity (deterministic)
         const newPulsing = new Set<string>();
-        for (let i = 0; i < 5; i++) {
-          const layerIdx = Math.floor(Math.random() * (layers.length - 1));
-          const fromNode = Math.floor(Math.random() * layers[layerIdx].nodes.length);
-          const toNode = Math.floor(Math.random() * layers[layerIdx + 1].nodes.length);
-          newPulsing.add(`${layerIdx}-${fromNode}-${toNode}`);
+        if (eventCount && eventCount > 0) {
+          // Create consistent pulsing pattern based on event count
+          const pulseCount = Math.min(5, Math.ceil(eventCount / 10));
+          for (let i = 0; i < pulseCount; i++) {
+            const layerIdx = i % (layers.length - 1);
+            const fromNode = i % layers[layerIdx].nodes.length;
+            const toNode = (i + 1) % layers[layerIdx + 1].nodes.length;
+            newPulsing.add(`${layerIdx}-${fromNode}-${toNode}`);
+          }
         }
         setPulsingConnections(newPulsing);
 
@@ -136,7 +192,7 @@ export const NeuralDecisionViz = () => {
     fetchRealData();
     const interval = setInterval(fetchRealData, 5000);
     return () => clearInterval(interval);
-  }, [layers]);
+  }, [layers, ticker]);
 
   // Draw neural network
   useEffect(() => {
@@ -236,7 +292,7 @@ export const NeuralDecisionViz = () => {
             </div>
             <div>
               <CardTitle className="text-lg">Neural Decision Engine</CardTitle>
-              <p className="text-xs text-muted-foreground">Real-time inference visualization</p>
+              <p className="text-xs text-muted-foreground">Real-time inference from DB</p>
             </div>
           </div>
           <Badge variant="outline" className="gap-1 bg-success/10 text-success border-success/30">

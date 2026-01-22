@@ -26,6 +26,7 @@ import {
   Activity,
   Eye
 } from "lucide-react";
+import { useTicker, useCandles } from "@/hooks/useMarketData";
 
 interface Candle {
   time: string;
@@ -131,14 +132,36 @@ interface LiveCandleChartProps {
 }
 
 export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCandleChartProps) => {
-  const [candles, setCandles] = useState<Candle[]>([]);
-  const [currentPrice, setCurrentPrice] = useState(95234.56);
-  const [priceChange, setPriceChange] = useState(1.24);
-  const [simulatedTrades, setSimulatedTrades] = useState<Trade[]>([]);
-  const [simulatedPosition, setSimulatedPosition] = useState<Position | null>(null);
-  const [timeframe, setTimeframe] = useState("1m");
+  const [timeframe, setTimeframe] = useState("1h");
   const [isLive, setIsLive] = useState(true);
   const [lastSignal, setLastSignal] = useState<{ action: string; confidence: number } | null>(null);
+  
+  // Use real market data hooks
+  const { ticker, loading: tickerLoading } = useTicker({ symbol: 'BTC/USD', refreshInterval: 5000 });
+  const { candles: dbCandles, loading: candlesLoading, refetchFromExchange } = useCandles({
+    symbol: 'BTC/USD',
+    interval: timeframe,
+    autoFetch: true,
+    limit: 60
+  });
+  
+  // Transform DB candles to chart format
+  const candles: Candle[] = useMemo(() => {
+    if (dbCandles.length === 0) return [];
+    return dbCandles.map(c => ({
+      time: new Date(c.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: c.timestamp * 1000,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume
+    }));
+  }, [dbCandles]);
+  
+  // Use real ticker price
+  const currentPrice = ticker?.price || (candles.length > 0 ? candles[candles.length - 1]?.close : 0);
+  const priceChange = ticker?.change24h || 0;
   
   // Convert real positions to display format
   const openRealPosition = realPositions.find(p => p.status === 'open');
@@ -149,10 +172,10 @@ export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCan
     side: openRealPosition.side,
     size: openRealPosition.quantity,
     unrealizedPnl: openRealPosition.unrealized_pnl || 0
-  } : simulatedPosition;
+  } : null;
   
   // Convert real orders to trades format
-  const realTrades: Trade[] = realOrders
+  const trades: Trade[] = realOrders
     .filter(o => o.status === 'filled' && o.average_fill_price)
     .slice(0, 10)
     .map(o => ({
@@ -164,157 +187,29 @@ export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCan
       pnl: undefined
     }));
   
-  const trades = realTrades.length > 0 ? realTrades : simulatedTrades;
-  const hasRealData = realPositions.length > 0 || realOrders.length > 0;
+  const hasRealData = realPositions.length > 0 || realOrders.length > 0 || candles.length > 0;
 
-  // Generate initial candle data
+  // Generate AI signals based on real price movement (no Math.random simulation)
   useEffect(() => {
-    const generateCandles = (): Candle[] => {
-      const data: Candle[] = [];
-      let price = 95000;
-      const now = Date.now();
-      
-      for (let i = 60; i >= 0; i--) {
-        const volatility = 0.002 + Math.random() * 0.003;
-        const trend = Math.sin((60 - i) / 10) * 0.001;
-        const change = (Math.random() - 0.5) * 2 * volatility + trend;
-        
-        const open = price;
-        const close = price * (1 + change);
-        const high = Math.max(open, close) * (1 + Math.random() * 0.001);
-        const low = Math.min(open, close) * (1 - Math.random() * 0.001);
-        
-        const timestamp = now - i * 60000;
-        data.push({
-          time: new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          timestamp,
-          open,
-          high,
-          low,
-          close,
-          volume: Math.random() * 100 + 50
-        });
-        
-        price = close;
-      }
-      
-      return data;
-    };
+    if (!ticker || candles.length < 10) return;
     
-    setCandles(generateCandles());
-  }, []);
-
-  // Live updates
-  useEffect(() => {
-    if (!isLive || candles.length === 0) return;
-
-    const interval = setInterval(() => {
-      setCandles(prev => {
-        if (prev.length === 0) return prev;
-        
-        const lastCandle = prev[prev.length - 1];
-        const volatility = 0.001 + Math.random() * 0.002;
-        const change = (Math.random() - 0.5) * 2 * volatility;
-        
-        const newClose = lastCandle.close * (1 + change);
-        const newHigh = Math.max(lastCandle.high, newClose);
-        const newLow = Math.min(lastCandle.low, newClose);
-        
-        setCurrentPrice(newClose);
-        setPriceChange(p => p + (Math.random() - 0.5) * 0.05);
-        
-        // Create new minute candle every ~10 updates
-        if (Math.random() > 0.9) {
-          const now = Date.now();
-          const newCandle: Candle = {
-            time: new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            timestamp: now,
-            open: newClose,
-            high: newClose * 1.001,
-            low: newClose * 0.999,
-            close: newClose,
-            volume: Math.random() * 100 + 50
-          };
-          return [...prev.slice(1), newCandle];
-        }
-        
-        // Update last candle
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          ...lastCandle,
-          high: newHigh,
-          low: newLow,
-          close: newClose
-        };
-        return updated;
-      });
-
-      // Simulate AI signals
-      if (Math.random() > 0.92) {
-        const actions = ["BUY", "SELL", "HOLD"];
-        setLastSignal({
-          action: actions[Math.floor(Math.random() * actions.length)],
-          confidence: 60 + Math.floor(Math.random() * 35)
-        });
-      }
-
-      // Only simulate trades/positions if we don't have real data
-      if (!hasRealData) {
-        // Simulate trades
-        if (Math.random() > 0.97) {
-          const side = Math.random() > 0.5 ? "buy" : "sell";
-          setSimulatedTrades(prev => [{
-            id: crypto.randomUUID(),
-            time: Date.now(),
-            price: currentPrice,
-            side,
-            size: 0.01 + Math.random() * 0.05,
-            pnl: (Math.random() - 0.4) * 500
-          }, ...prev.slice(0, 9)]);
-        }
-
-        // Simulate position updates
-        if (Math.random() > 0.96 && !simulatedPosition) {
-          const side = Math.random() > 0.5 ? "buy" : "sell";
-          setSimulatedPosition({
-            entryPrice: currentPrice,
-            stopLoss: side === "buy" ? currentPrice * 0.98 : currentPrice * 1.02,
-            takeProfit: side === "buy" ? currentPrice * 1.03 : currentPrice * 0.97,
-            side,
-            size: 0.05,
-            unrealizedPnl: 0
-          });
-        } else if (simulatedPosition) {
-          const pnl = simulatedPosition.side === "buy"
-            ? (currentPrice - simulatedPosition.entryPrice) * simulatedPosition.size * 1000
-            : (simulatedPosition.entryPrice - currentPrice) * simulatedPosition.size * 1000;
-          
-          setSimulatedPosition(prev => prev ? { ...prev, unrealizedPnl: pnl } : null);
-
-          // Close position randomly
-          if (Math.random() > 0.992) {
-            setSimulatedTrades(prev => [{
-              id: crypto.randomUUID(),
-              time: Date.now(),
-              price: currentPrice,
-              side: simulatedPosition.side === "buy" ? "sell" : "buy",
-              size: simulatedPosition.size,
-              pnl: simulatedPosition.unrealizedPnl
-            }, ...prev.slice(0, 9)]);
-            setSimulatedPosition(null);
-          }
-        }
-      }
-    }, 800);
-
-    return () => clearInterval(interval);
-  }, [isLive, candles.length, simulatedPosition, currentPrice, hasRealData]);
+    // Calculate signal based on real data
+    const recentCandles = candles.slice(-10);
+    const avgPrice = recentCandles.reduce((sum, c) => sum + c.close, 0) / recentCandles.length;
+    const priceTrend = (currentPrice - avgPrice) / avgPrice * 100;
+    
+    // Only generate signal if there's meaningful movement
+    if (Math.abs(priceTrend) > 0.3) {
+      const action = priceTrend > 0.5 ? "BUY" : priceTrend < -0.5 ? "SELL" : "HOLD";
+      const confidence = Math.min(90, 50 + Math.abs(priceTrend) * 10);
+      setLastSignal({ action, confidence: Math.round(confidence) });
+    }
+  }, [ticker, candles, currentPrice]);
 
   // Calculate chart data for candlesticks
   const chartData = useMemo(() => {
     return candles.map(c => ({
       ...c,
-      // For the bar chart visualization
       range: [c.low, c.high],
       body: [Math.min(c.open, c.close), Math.max(c.open, c.close)]
     }));
@@ -328,6 +223,8 @@ export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCan
     const padding = (max - min) * 0.1;
     return { min: min - padding, max: max + padding };
   }, [candles]);
+
+  const loading = tickerLoading || candlesLoading;
 
   return (
     <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-background via-background to-primary/5">
@@ -352,16 +249,18 @@ export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCan
                 </Badge>
                 {hasRealData ? (
                   <Badge variant="outline" className="gap-1 text-xs bg-primary/10 text-primary border-primary/30">
-                    DB Connected
+                    Kraken API
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="gap-1 text-xs bg-warning/10 text-warning border-warning/30">
-                    Demo Mode
+                    Loading...
                   </Badge>
                 )}
               </CardTitle>
               <div className="flex items-center gap-3 mt-1">
-                <span className="text-2xl font-bold font-mono">${currentPrice.toFixed(2)}</span>
+                <span className="text-2xl font-bold font-mono">
+                  {loading ? '...' : `$${currentPrice.toFixed(2)}`}
+                </span>
                 <Badge className={priceChange >= 0 ? "bg-success/20 text-success" : "bg-destructive/20 text-destructive"}>
                   {priceChange >= 0 ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
                   {priceChange >= 0 ? "+" : ""}{priceChange.toFixed(2)}%
@@ -391,7 +290,7 @@ export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCan
                 variant={timeframe === tf ? "default" : "outline"}
                 size="sm"
                 className="text-xs px-3"
-                onClick={() => setTimeframe(tf)}
+                onClick={() => setTimeframe(tf === "1m" ? "1" : tf === "5m" ? "5" : tf === "15m" ? "15" : tf === "1h" ? "60" : tf === "4h" ? "240" : "1440")}
               >
                 {tf.toUpperCase()}
               </Button>
@@ -403,73 +302,87 @@ export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCan
       <CardContent className="relative space-y-4">
         {/* Candlestick Chart */}
         <div className="h-[350px] w-full rounded-xl overflow-hidden border border-border/50 bg-secondary/10 p-2">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(139, 92, 246, 0.1)" />
-              <XAxis 
-                dataKey="time" 
-                tick={{ fontSize: 10, fill: '#9ca3af' }}
-                axisLine={{ stroke: 'rgba(139, 92, 246, 0.2)' }}
-                tickLine={{ stroke: 'rgba(139, 92, 246, 0.2)' }}
-                interval="preserveStartEnd"
-              />
-              <YAxis 
-                domain={[priceRange.min, priceRange.max]}
-                tick={{ fontSize: 10, fill: '#9ca3af' }}
-                axisLine={{ stroke: 'rgba(139, 92, 246, 0.2)' }}
-                tickLine={{ stroke: 'rgba(139, 92, 246, 0.2)' }}
-                tickFormatter={(value) => `$${(value / 1000).toFixed(1)}k`}
-                width={55}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '8px',
-                  fontSize: '12px'
-                }}
-                formatter={(value: number, name: string) => {
-                  if (name === 'range') return null;
-                  return [`$${value.toFixed(2)}`, name.charAt(0).toUpperCase() + name.slice(1)];
-                }}
-                labelFormatter={(label) => `Time: ${label}`}
-              />
-              
-              {/* Position lines */}
-              {position && (
-                <>
-                  <ReferenceLine 
-                    y={position.entryPrice} 
-                    stroke="#3b82f6" 
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    label={{ value: 'Entry', fill: '#3b82f6', fontSize: 10 }}
-                  />
-                  <ReferenceLine 
-                    y={position.stopLoss} 
-                    stroke="#ef4444" 
-                    strokeWidth={1}
-                    strokeDasharray="3 3"
-                    label={{ value: 'SL', fill: '#ef4444', fontSize: 10 }}
-                  />
-                  <ReferenceLine 
-                    y={position.takeProfit} 
-                    stroke="#22c55e" 
-                    strokeWidth={1}
-                    strokeDasharray="3 3"
-                    label={{ value: 'TP', fill: '#22c55e', fontSize: 10 }}
-                  />
-                </>
-              )}
-              
-              {/* Candlesticks as bars */}
-              <Bar dataKey="high" shape={<CandlestickShape />} isAnimationActive={false}>
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.close >= entry.open ? "#22c55e" : "#ef4444"} />
-                ))}
-              </Bar>
-            </ComposedChart>
-          </ResponsiveContainer>
+          {loading && candles.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              <Activity className="h-5 w-5 animate-spin mr-2" />
+              Loading market data...
+            </div>
+          ) : candles.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+              <p>No candle data available</p>
+              <Button size="sm" onClick={refetchFromExchange}>
+                Fetch from Kraken
+              </Button>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(139, 92, 246, 0.1)" />
+                <XAxis 
+                  dataKey="time" 
+                  tick={{ fontSize: 10, fill: '#9ca3af' }}
+                  axisLine={{ stroke: 'rgba(139, 92, 246, 0.2)' }}
+                  tickLine={{ stroke: 'rgba(139, 92, 246, 0.2)' }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis 
+                  domain={[priceRange.min, priceRange.max]}
+                  tick={{ fontSize: 10, fill: '#9ca3af' }}
+                  axisLine={{ stroke: 'rgba(139, 92, 246, 0.2)' }}
+                  tickLine={{ stroke: 'rgba(139, 92, 246, 0.2)' }}
+                  tickFormatter={(value) => `$${(value / 1000).toFixed(1)}k`}
+                  width={55}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                    fontSize: '12px'
+                  }}
+                  formatter={(value: number, name: string) => {
+                    if (name === 'range') return null;
+                    return [`$${value.toFixed(2)}`, name.charAt(0).toUpperCase() + name.slice(1)];
+                  }}
+                  labelFormatter={(label) => `Time: ${label}`}
+                />
+                
+                {/* Position lines */}
+                {position && (
+                  <>
+                    <ReferenceLine 
+                      y={position.entryPrice} 
+                      stroke="#3b82f6" 
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      label={{ value: 'Entry', fill: '#3b82f6', fontSize: 10 }}
+                    />
+                    <ReferenceLine 
+                      y={position.stopLoss} 
+                      stroke="#ef4444" 
+                      strokeWidth={1}
+                      strokeDasharray="3 3"
+                      label={{ value: 'SL', fill: '#ef4444', fontSize: 10 }}
+                    />
+                    <ReferenceLine 
+                      y={position.takeProfit} 
+                      stroke="#22c55e" 
+                      strokeWidth={1}
+                      strokeDasharray="3 3"
+                      label={{ value: 'TP', fill: '#22c55e', fontSize: 10 }}
+                    />
+                  </>
+                )}
+                
+                {/* Candlesticks as bars */}
+                <Bar dataKey="high" shape={<CandlestickShape />} isAnimationActive={false}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.close >= entry.open ? "#22c55e" : "#ef4444"} />
+                  ))}
+                </Bar>
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         {/* Position Panel */}
@@ -493,24 +406,24 @@ export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCan
               <div className="grid grid-cols-4 gap-6">
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground">Entry</p>
-                  <p className="font-mono font-semibold text-primary">${position.entryPrice.toFixed(2)}</p>
+                  <p className="font-mono font-bold">${position.entryPrice.toFixed(2)}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                    <ShieldAlert className="h-3 w-3 text-destructive" /> Stop
+                    <ShieldAlert className="h-3 w-3 text-destructive" /> SL
                   </p>
-                  <p className="font-mono font-semibold text-destructive">${position.stopLoss.toFixed(2)}</p>
+                  <p className="font-mono font-bold text-destructive">${position.stopLoss.toFixed(2)}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                    <Target className="h-3 w-3 text-success" /> Target
+                    <Target className="h-3 w-3 text-success" /> TP
                   </p>
-                  <p className="font-mono font-semibold text-success">${position.takeProfit.toFixed(2)}</p>
+                  <p className="font-mono font-bold text-success">${position.takeProfit.toFixed(2)}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground">P&L</p>
-                  <p className={`font-mono font-bold text-lg ${position.unrealizedPnl >= 0 ? "text-success" : "text-destructive"}`}>
-                    {position.unrealizedPnl >= 0 ? "+" : ""}${position.unrealizedPnl.toFixed(2)}
+                  <p className={`font-mono font-bold ${position.unrealizedPnl >= 0 ? 'text-success' : 'text-destructive'}`}>
+                    {position.unrealizedPnl >= 0 ? '+' : ''}${position.unrealizedPnl.toFixed(2)}
                   </p>
                 </div>
               </div>
@@ -518,76 +431,75 @@ export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCan
           </div>
         )}
 
-        {/* Recent Trades */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold">AI Trade Executions</span>
-            <Badge variant="secondary" className="text-xs">{trades.length}</Badge>
-          </div>
-          
-          {trades.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-              {trades.slice(0, 5).map((trade) => (
-                <div
+        {/* Recent Trades from DB */}
+        {trades.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Activity className="h-4 w-4 text-primary" />
+              Recent AI Trades
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {trades.slice(0, 4).map((trade) => (
+                <div 
                   key={trade.id}
-                  className={`p-3 rounded-lg border transition-all animate-in slide-in-from-left-2 ${
-                    trade.side === "buy" 
-                      ? "bg-success/5 border-success/30" 
-                      : "bg-destructive/5 border-destructive/30"
+                  className={`flex items-center justify-between p-3 rounded-lg border ${
+                    trade.side === 'buy' 
+                      ? 'bg-success/5 border-success/20' 
+                      : 'bg-destructive/5 border-destructive/20'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <Badge className={trade.side === "buy" ? "bg-success text-white" : "bg-destructive text-white"}>
-                      {trade.side.toUpperCase()}
-                    </Badge>
-                    <span className="text-[10px] text-muted-foreground">
-                      {new Date(trade.time).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <p className="text-xs font-mono">${trade.price.toFixed(2)}</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-[10px] text-muted-foreground">{trade.size.toFixed(4)} BTC</span>
-                    {trade.pnl !== undefined && (
-                      <span className={`text-xs font-semibold ${trade.pnl >= 0 ? "text-success" : "text-destructive"}`}>
-                        {trade.pnl >= 0 ? "+" : ""}${trade.pnl.toFixed(0)}
-                      </span>
+                  <div className="flex items-center gap-2">
+                    {trade.side === 'buy' ? (
+                      <ArrowUpCircle className="h-4 w-4 text-success" />
+                    ) : (
+                      <ArrowDownCircle className="h-4 w-4 text-destructive" />
                     )}
+                    <div>
+                      <span className="font-medium text-sm">{trade.side.toUpperCase()}</span>
+                      <span className="text-xs text-muted-foreground ml-2">{trade.size.toFixed(4)} BTC</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-sm">${trade.price.toFixed(2)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(trade.time).toLocaleTimeString()}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="text-center py-4 text-muted-foreground text-sm">
-              Waiting for AI to execute trades...
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Live indicator */}
-        <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30 border border-border/50">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Eye className="h-4 w-4 text-primary animate-pulse" />
-              <span className="text-xs">AI: <span className="text-success font-semibold">Active</span></span>
+        {/* Live Status */}
+        <div className="flex items-center justify-between pt-4 border-t border-border/50">
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${isLive ? 'bg-success/10' : 'bg-muted'}`}>
+              <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-success animate-pulse' : 'bg-muted-foreground'}`} />
+              <span className="text-xs font-medium">{isLive ? 'Live Data' : 'Paused'}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-warning" />
-              <span className="text-xs">Latency: <span className="font-semibold">12ms</span></span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-accent" />
-              <span className="text-xs">Signals: <span className="font-semibold">847</span></span>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Eye className="h-3 w-3" />
+              Kraken API • {timeframe}
             </div>
           </div>
-          <Button
-            variant={isLive ? "default" : "outline"}
-            size="sm"
-            className="gap-2"
+          <Button 
+            variant="outline" 
+            size="sm" 
             onClick={() => setIsLive(!isLive)}
+            className="gap-2"
           >
-            <Radio className={`h-3 w-3 ${isLive ? "animate-pulse" : ""}`} />
-            {isLive ? "LIVE" : "PAUSED"}
+            {isLive ? (
+              <>
+                <div className="w-2 h-2 rounded-full bg-success" />
+                Streaming
+              </>
+            ) : (
+              <>
+                <div className="w-2 h-2 rounded-full bg-muted-foreground" />
+                Paused
+              </>
+            )}
           </Button>
         </div>
       </CardContent>
