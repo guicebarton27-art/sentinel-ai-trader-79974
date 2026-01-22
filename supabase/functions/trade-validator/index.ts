@@ -53,7 +53,7 @@ async function authenticateUser(req: Request) {
     throw { status: 403, message: 'Trader or admin role required for trade validation' };
   }
 
-  return { user, role };
+  return { user: { id: user.id, email: user.email ?? 'unknown' }, role };
 }
 
 serve(async (req) => {

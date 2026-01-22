@@ -46,7 +46,7 @@ async function authenticateUser(req: Request) {
     throw new Error('Insufficient permissions. Trader or admin role required.');
   }
 
-  return { user, role };
+  return { user: { id: user.id, email: user.email ?? 'unknown' }, role };
 }
 
 serve(async (req) => {

@@ -57,7 +57,7 @@ async function authenticateUser(supabase: any, authHeader: string | null) {
     throw { status: 403, message: 'Insufficient permissions' };
   }
 
-  return { user, role };
+  return { user: { id: user.id, email: user.email ?? 'unknown' }, role };
 }
 
 Deno.serve(async (req) => {

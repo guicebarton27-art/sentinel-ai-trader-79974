@@ -53,7 +53,7 @@ async function authenticateUser(req: Request) {
     throw { status: 403, message: 'Admin role required for chaos runner access' };
   }
 
-  return { user, role };
+  return { user: { id: user.id, email: user.email ?? 'unknown' }, role };
 }
 
 serve(async (req) => {
