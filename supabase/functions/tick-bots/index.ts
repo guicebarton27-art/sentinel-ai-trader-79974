@@ -942,8 +942,27 @@ serve(async (req) => {
   const supabase = getServiceClient();
 
   try {
+    // Allow multiple auth methods for cron compatibility:
+    // 1. x-service-role header with service role key (internal calls)
+    // 2. Authorization header from pg_cron (scheduled trigger)
     const serviceHeader = req.headers.get('x-service-role');
-    if (!serviceHeader || serviceHeader !== requireEnv('SUPABASE_SERVICE_ROLE_KEY')) {
+    const authHeader = req.headers.get('Authorization');
+    
+    // Check if called by service role
+    const isServiceRole = serviceHeader === requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+    
+    // Check if called by cron (has Authorization header and body contains cron source)
+    let isCronCall = false;
+    if (authHeader) {
+      try {
+        const body = await req.clone().json();
+        isCronCall = body?.source === 'cron';
+      } catch {
+        // Body parsing failed, not a cron call
+      }
+    }
+    
+    if (!isServiceRole && !isCronCall) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
