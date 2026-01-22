@@ -26,7 +26,7 @@ import {
   Lightbulb
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
+import { useTicker } from "@/hooks/useMarketData";
 
 interface Message {
   role: "user" | "assistant";
@@ -61,52 +61,103 @@ export const AICommandCenter = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
   const [neuralSignals, setNeuralSignals] = useState<NeuralSignal[]>([]);
-  const [brainActivity, setBrainActivity] = useState(0);
+  const [brainActivity, setBrainActivity] = useState(50);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Simulate neural activity
+  // Real market data for neural activity
+  const { ticker } = useTicker({ symbol: 'BTC/USD', refreshInterval: 5000 });
+
+  // Update brain activity based on real market volatility
   useEffect(() => {
-    const interval = setInterval(() => {
-      setBrainActivity(prev => {
-        const change = (Math.random() - 0.5) * 20;
-        return Math.max(20, Math.min(100, prev + change));
-      });
-    }, 500);
+    if (ticker) {
+      // Calculate activity based on price change magnitude
+      const changePercent = Math.abs(ticker.change24h || 0);
+      const newActivity = Math.min(100, Math.max(20, 50 + changePercent * 10));
+      setBrainActivity(newActivity);
+    }
+  }, [ticker]);
 
-    return () => clearInterval(interval);
-  }, []);
-
-  // Generate live neural signals
+  // Generate neural signals from real market data and bot events
   useEffect(() => {
-    const generateSignal = () => {
-      const sources = ["Price Action", "Sentiment", "Volume", "RSI", "MACD", "Order Flow", "Whale Activity", "News"];
-      const types: ("bullish" | "bearish" | "neutral")[] = ["bullish", "bearish", "neutral"];
-      const messages = {
-        bullish: ["Strong accumulation detected", "Breakout pattern forming", "Smart money entering", "Support level holding"],
-        bearish: ["Distribution phase detected", "Resistance rejection", "Whale selling pressure", "Breakdown imminent"],
-        neutral: ["Consolidation zone", "Awaiting catalyst", "Low conviction signal", "Range-bound market"]
-      };
+    const fetchRealSignals = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-      const type = types[Math.floor(Math.random() * types.length)];
-      const source = sources[Math.floor(Math.random() * sources.length)];
-      
-      const signal: NeuralSignal = {
-        id: crypto.randomUUID(),
-        type,
-        source,
-        confidence: 50 + Math.floor(Math.random() * 45),
-        message: messages[type][Math.floor(Math.random() * messages[type].length)],
-        timestamp: new Date()
-      };
+        // Fetch recent bot events as signals
+        const { data: events } = await supabase
+          .from('bot_events')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5);
 
-      setNeuralSignals(prev => [signal, ...prev.slice(0, 9)]);
+        // Fetch recent sentiment data
+        const { data: sentiment } = await supabase
+          .from('sentiment_data')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(3);
+
+        const signals: NeuralSignal[] = [];
+
+        // Add signals from bot events
+        if (events) {
+          events.forEach(event => {
+            const type = event.event_type === 'fill' || event.event_type === 'order' 
+              ? (event.payload as { decision?: { side?: string } })?.decision?.side === 'buy' ? 'bullish' : 'bearish'
+              : 'neutral';
+            
+            signals.push({
+              id: event.id,
+              type,
+              source: `Bot ${event.event_type}`,
+              confidence: Math.min(95, 50 + Math.abs(event.bot_pnl || 0)),
+              message: event.message,
+              timestamp: new Date(event.created_at)
+            });
+          });
+        }
+
+        // Add signals from sentiment data
+        if (sentiment) {
+          sentiment.forEach(s => {
+            signals.push({
+              id: s.id,
+              type: s.sentiment_score > 0.2 ? 'bullish' : s.sentiment_score < -0.2 ? 'bearish' : 'neutral',
+              source: s.source,
+              confidence: Math.round((s.confidence || 0.5) * 100),
+              message: s.trend || 'Market sentiment analysis',
+              timestamp: new Date(s.created_at || Date.now())
+            });
+          });
+        }
+
+        // Add live price signal
+        if (ticker) {
+          signals.unshift({
+            id: `ticker-${Date.now()}`,
+            type: (ticker.change24h || 0) > 0.5 ? 'bullish' : (ticker.change24h || 0) < -0.5 ? 'bearish' : 'neutral',
+            source: 'Price Action',
+            confidence: Math.min(95, 50 + Math.abs(ticker.change24h || 0) * 5),
+            message: `BTC ${(ticker.change24h || 0) >= 0 ? '+' : ''}${(ticker.change24h || 0).toFixed(2)}% @ $${ticker.price.toLocaleString()}`,
+            timestamp: new Date()
+          });
+        }
+
+        if (signals.length > 0) {
+          setNeuralSignals(signals.slice(0, 10));
+        }
+      } catch (err) {
+        console.error('Error fetching signals:', err);
+      }
     };
 
-    generateSignal();
-    const interval = setInterval(generateSignal, 3000);
+    fetchRealSignals();
+    const interval = setInterval(fetchRealSignals, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [ticker]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -160,7 +211,9 @@ export const AICommandCenter = () => {
           })),
           context: {
             neuralSignals: neuralSignals.slice(0, 5),
-            brainActivity
+            brainActivity,
+            currentPrice: ticker?.price,
+            priceChange: ticker?.change24h
           }
         }
       });
@@ -169,24 +222,19 @@ export const AICommandCenter = () => {
 
       const assistantMessage: Message = {
         role: "assistant",
-        content: data?.response || "I've analyzed the current market conditions. Based on my neural network analysis, I'm seeing mixed signals with a slight bullish bias. The key levels to watch are $94,500 support and $98,200 resistance.",
+        content: data?.response || `Based on current market data, BTC is trading at $${ticker?.price?.toLocaleString() || 'N/A'} with ${(ticker?.change24h || 0) >= 0 ? '+' : ''}${(ticker?.change24h || 0).toFixed(2)}% change. My neural analysis is processing ${neuralSignals.length} active signals.`,
         timestamp: new Date()
       };
 
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error("AI Copilot error:", error);
-      // Fallback response
-      const fallbackResponses = [
-        "Based on my analysis of the current market microstructure, I'm detecting accumulation patterns. The neural network confidence is at 73% for a bullish continuation.",
-        "I've processed 847 data points in the last tick. Current sentiment analysis shows cautious optimism with institutional order flow slightly positive.",
-        "My risk engine is flagging elevated volatility. I recommend reducing position sizes by 20% until the VIX stabilizes below 18.",
-        "The AI strategy ensemble is currently favoring momentum strategies over mean reversion. Expected Sharpe ratio for the next 24h: 1.4"
-      ];
+      // Fallback with real data
+      const priceInfo = ticker ? `BTC at $${ticker.price.toLocaleString()} (${(ticker.change24h || 0) >= 0 ? '+' : ''}${(ticker.change24h || 0).toFixed(2)}%)` : 'Market data loading...';
       
       setMessages(prev => [...prev, {
         role: "assistant",
-        content: fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)],
+        content: `Current status: ${priceInfo}. I've processed ${neuralSignals.length} signals with an average confidence of ${neuralSignals.length > 0 ? Math.round(neuralSignals.reduce((sum, s) => sum + s.confidence, 0) / neuralSignals.length) : 0}%. Brain activity is at ${brainActivity.toFixed(0)}%.`,
         timestamp: new Date()
       }]);
     } finally {
@@ -260,7 +308,9 @@ export const AICommandCenter = () => {
                 AI Command Center
                 <Sparkles className="h-4 w-4 text-primary animate-pulse" />
               </CardTitle>
-              <p className="text-xs text-muted-foreground">Neural Trading Intelligence v2.0</p>
+              <p className="text-xs text-muted-foreground">
+                {ticker ? `BTC $${ticker.price.toLocaleString()}` : 'Neural Trading Intelligence v2.0'}
+              </p>
             </div>
           </div>
 
@@ -297,26 +347,33 @@ export const AICommandCenter = () => {
             
             <ScrollArea className="h-[300px] pr-2">
               <div className="space-y-2">
-                {neuralSignals.map((signal, idx) => (
-                  <div 
-                    key={signal.id}
-                    className={`p-2.5 rounded-lg border transition-all duration-300 ${
-                      idx === 0 ? 'bg-primary/5 border-primary/30 scale-[1.02]' : 'bg-secondary/30 border-border/30'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className={`flex items-center gap-1.5 ${getSignalColor(signal.type)}`}>
-                        {getSignalIcon(signal.type)}
-                        <span className="text-xs font-semibold uppercase">{signal.type}</span>
-                      </div>
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                        {signal.confidence}%
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-foreground">{signal.message}</p>
-                    <p className="text-[10px] text-muted-foreground mt-1">{signal.source}</p>
+                {neuralSignals.length === 0 ? (
+                  <div className="text-center text-sm text-muted-foreground py-8">
+                    <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    Loading signals...
                   </div>
-                ))}
+                ) : (
+                  neuralSignals.map((signal, idx) => (
+                    <div 
+                      key={signal.id}
+                      className={`p-2.5 rounded-lg border transition-all duration-300 ${
+                        idx === 0 ? 'bg-primary/5 border-primary/30 scale-[1.02]' : 'bg-secondary/30 border-border/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <div className={`flex items-center gap-1.5 ${getSignalColor(signal.type)}`}>
+                          {getSignalIcon(signal.type)}
+                          <span className="text-xs font-semibold uppercase">{signal.type}</span>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                          {signal.confidence}%
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-foreground">{signal.message}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1">{signal.source}</p>
+                    </div>
+                  ))
+                )}
               </div>
             </ScrollArea>
           </div>

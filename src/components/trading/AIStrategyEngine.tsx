@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useTicker, useMultipleTickers } from '@/hooks/useMarketData';
 import { 
   Brain, 
   TrendingUp, 
@@ -49,25 +49,100 @@ export const AIStrategyEngine = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [decision, setDecision] = useState<StrategyDecision | null>(null);
   const [riskTolerance, setRiskTolerance] = useState('moderate');
-  const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT');
-  const [simulatedPrice, setSimulatedPrice] = useState([65000]);
+  const [selectedSymbol, setSelectedSymbol] = useState('BTC/USD');
+  const [portfolio, setPortfolio] = useState({ totalValue: 0, cashBalance: 0, openPositions: 0 });
 
-  const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
+  const symbols = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD'];
+
+  // Real market data
+  const { ticker, loading: tickerLoading } = useTicker({ symbol: selectedSymbol, refreshInterval: 5000 });
+  const { tickers } = useMultipleTickers(symbols, 15000);
+
+  // Fetch portfolio data
+  useEffect(() => {
+    const fetchPortfolio = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        // Get active bot capital
+        const { data: bots } = await supabase
+          .from('bots')
+          .select('current_capital, starting_capital')
+          .eq('user_id', user.id);
+
+        // Get open positions
+        const { data: positions } = await supabase
+          .from('positions')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('status', 'open');
+
+        const totalCapital = bots?.reduce((sum, bot) => sum + Number(bot.current_capital || 0), 0) || 10000;
+        const startingCapital = bots?.reduce((sum, bot) => sum + Number(bot.starting_capital || 0), 0) || 10000;
+
+        setPortfolio({
+          totalValue: totalCapital,
+          cashBalance: totalCapital * 0.25, // Assume 25% cash reserve
+          openPositions: positions?.length || 0
+        });
+      } catch (err) {
+        console.error('Error fetching portfolio:', err);
+      }
+    };
+
+    fetchPortfolio();
+    const interval = setInterval(fetchPortfolio, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const generateMarketState = (): MarketState => {
-    const basePrice = simulatedPrice[0];
+    if (!ticker) {
+      return {
+        symbol: selectedSymbol,
+        currentPrice: 0,
+        priceChange24h: 0,
+        volume24h: 0,
+        sentiment: 0,
+        volatility: 0,
+        trendStrength: 'neutral'
+      };
+    }
+
+    // Calculate trend strength from price change
+    const change = ticker.change24h || 0;
+    let trendStrength = 'neutral';
+    if (change > 3) trendStrength = 'strong_bullish';
+    else if (change > 1) trendStrength = 'bullish';
+    else if (change < -3) trendStrength = 'strong_bearish';
+    else if (change < -1) trendStrength = 'bearish';
+
+    // Estimate volatility from high/low range
+    const range = ticker.high24h && ticker.low24h 
+      ? ((ticker.high24h - ticker.low24h) / ticker.price) * 100 
+      : 2;
+
     return {
       symbol: selectedSymbol,
-      currentPrice: basePrice,
-      priceChange24h: (Math.random() - 0.5) * 10,
-      volume24h: Math.random() * 5000000000,
-      sentiment: (Math.random() - 0.5) * 2,
-      volatility: Math.random() * 5 + 1,
-      trendStrength: ['strong_bullish', 'bullish', 'neutral', 'bearish', 'strong_bearish'][Math.floor(Math.random() * 5)]
+      currentPrice: ticker.price,
+      priceChange24h: change,
+      volume24h: ticker.volume24h,
+      sentiment: change / 10, // Simple sentiment from price change
+      volatility: range,
+      trendStrength
     };
   };
 
   const analyzeMarket = async () => {
+    if (!ticker) {
+      toast({
+        title: 'Market Data Loading',
+        description: 'Please wait for market data to load',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsAnalyzing(true);
     setDecision(null);
 
@@ -79,9 +154,9 @@ export const AIStrategyEngine = () => {
           marketState,
           riskTolerance,
           portfolio: {
-            totalValue: 100000,
-            cashBalance: 25000,
-            openPositions: 3
+            totalValue: portfolio.totalValue,
+            cashBalance: portfolio.cashBalance,
+            openPositions: portfolio.openPositions
           }
         }
       });
@@ -92,14 +167,14 @@ export const AIStrategyEngine = () => {
         setDecision(data.decision);
         toast({
           title: `AI Decision: ${data.decision.action}`,
-          description: `Confidence: ${data.decision.confidence}%`,
+          description: `Confidence: ${data.decision.confidence}% | ${selectedSymbol} @ $${ticker.price.toLocaleString()}`,
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Analysis error:', error);
       toast({
         title: 'Analysis Failed',
-        description: error.message || 'Unable to complete market analysis',
+        description: (error as Error).message || 'Unable to complete market analysis',
         variant: 'destructive',
       });
     } finally {
@@ -150,6 +225,14 @@ export const AIStrategyEngine = () => {
             <Badge variant="outline" className="ml-2 text-xs">
               Powered by Gemini
             </Badge>
+            {ticker && (
+              <Badge variant="secondary" className="ml-auto text-xs">
+                {selectedSymbol}: ${ticker.price.toLocaleString()} 
+                <span className={ticker.change24h >= 0 ? 'text-success ml-1' : 'text-destructive ml-1'}>
+                  {ticker.change24h >= 0 ? '+' : ''}{ticker.change24h.toFixed(2)}%
+                </span>
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -162,9 +245,14 @@ export const AIStrategyEngine = () => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {symbols.map(s => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
+                  {symbols.map(s => {
+                    const t = tickers.find(t => t.symbol === s);
+                    return (
+                      <SelectItem key={s} value={s}>
+                        {s} {t ? `($${t.price.toLocaleString()})` : ''}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -184,25 +272,26 @@ export const AIStrategyEngine = () => {
               </Select>
             </div>
 
-            {/* Price Simulation */}
+            {/* Portfolio Info */}
             <div className="space-y-2">
-              <label className="text-sm text-muted-foreground">
-                Simulated Price: ${simulatedPrice[0].toLocaleString()}
-              </label>
-              <Slider
-                value={simulatedPrice}
-                onValueChange={setSimulatedPrice}
-                min={20000}
-                max={150000}
-                step={1000}
-              />
+              <label className="text-sm text-muted-foreground">Portfolio</label>
+              <div className="text-sm p-2 rounded border border-border/50 bg-secondary/30">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Value:</span>
+                  <span className="font-mono">${portfolio.totalValue.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Positions:</span>
+                  <span>{portfolio.openPositions}</span>
+                </div>
+              </div>
             </div>
 
             {/* Analyze Button */}
             <div className="flex items-end">
               <Button 
                 onClick={analyzeMarket} 
-                disabled={isAnalyzing}
+                disabled={isAnalyzing || tickerLoading}
                 className="w-full"
               >
                 {isAnalyzing ? (
@@ -232,6 +321,11 @@ export const AIStrategyEngine = () => {
                 <div className="flex items-center gap-3">
                   {getActionIcon(decision.action)}
                   <span className="text-2xl font-bold">{decision.action}</span>
+                  {ticker && (
+                    <span className="text-sm text-muted-foreground">
+                      @ ${ticker.price.toLocaleString()}
+                    </span>
+                  )}
                 </div>
                 <Badge variant="outline" className="text-lg px-4 py-1">
                   {decision.confidence}% Confidence
@@ -345,11 +439,18 @@ export const AIStrategyEngine = () => {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Brain className="h-16 w-16 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground mb-2">
-              No Analysis Yet
+              Ready for Analysis
             </h3>
             <p className="text-sm text-muted-foreground text-center max-w-md">
-              Configure your parameters above and click "Analyze Market" to get AI-powered trading signals
-              based on reinforcement learning principles.
+              {ticker ? (
+                <>
+                  {selectedSymbol} is currently at <strong>${ticker.price.toLocaleString()}</strong> 
+                  {' '}({ticker.change24h >= 0 ? '+' : ''}{ticker.change24h.toFixed(2)}%).
+                  Click "Analyze Market" for AI-powered trading signals.
+                </>
+              ) : (
+                'Loading market data...'
+              )}
             </p>
           </CardContent>
         </Card>
