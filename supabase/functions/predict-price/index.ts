@@ -32,7 +32,7 @@ async function authenticateUser(req: Request) {
     .eq('user_id', user.id)
     .single();
 
-  return { user, role: roleData?.role || 'viewer' };
+  return { user: { id: user.id, email: user.email ?? 'unknown' }, role: roleData?.role || 'viewer' };
 }
 
 serve(async (req) => {
