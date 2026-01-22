@@ -77,3 +77,6 @@ verify_jwt = false
 
 [functions.bot-lifecycle-test]
 verify_jwt = false
+
+[functions.ai-copilot]
+verify_jwt = false
