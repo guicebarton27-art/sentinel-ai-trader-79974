@@ -977,7 +977,9 @@ serve(async (req) => {
     const runsQuery = supabase
       .from('runs')
       .select('*')
-      .in('status', ['RUNNING', 'STARTING']);
+      .in('status', ['RUNNING', 'STARTING'])
+      .neq('mode', 'backtest')
+      .not('bot_id', 'is', null);
 
     const { data: runs, error: runsError } = runId
       ? await runsQuery.eq('id', runId)
@@ -997,7 +999,12 @@ serve(async (req) => {
     const results = await Promise.allSettled(
       runs.map(async (run) => {
         if (!run.bot_id) {
-          throw new Error(`Run ${run.id} missing bot_id`);
+          logWarn({
+            component: 'tick-bots',
+            message: 'Skipping run missing bot_id',
+            context: { run_id: run.id },
+          });
+          return;
         }
         const { data: bot, error: botError } = await supabase
           .from('bots')
