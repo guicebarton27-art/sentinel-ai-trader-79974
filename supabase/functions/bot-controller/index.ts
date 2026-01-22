@@ -210,6 +210,29 @@ serve(async (req) => {
 
         if (error) throw error;
 
+        // Create a new bot_run session for tracking
+        const serviceClient = getServiceClient();
+        const { error: runError } = await serviceClient
+          .from('bot_runs')
+          .insert({
+            bot_id: bot_id,
+            user_id: user.id,
+            mode: targetMode,
+            status: 'running',
+            starting_capital: Number(bot.current_capital),
+            strategy_config: bot.strategy_config || {},
+            risk_config: {
+              max_daily_loss: bot.max_daily_loss,
+              max_position_size: bot.max_position_size,
+              stop_loss_pct: bot.stop_loss_pct,
+              take_profit_pct: bot.take_profit_pct,
+            },
+          });
+
+        if (runError) {
+          console.error('Failed to create bot_run:', runError);
+        }
+
         await logBotEvent(
           bot_id,
           user.id,
@@ -259,6 +282,21 @@ serve(async (req) => {
           .single();
 
         if (error) throw error;
+
+        // Close any active bot_runs for this bot
+        const serviceClient = getServiceClient();
+        await serviceClient
+          .from('bot_runs')
+          .update({
+            status: 'stopped',
+            ended_at: new Date().toISOString(),
+            ending_capital: Number(bot.current_capital),
+            total_pnl: Number(bot.total_pnl),
+            total_trades: Number(bot.total_trades),
+            winning_trades: Number(bot.winning_trades),
+          })
+          .eq('bot_id', bot_id)
+          .eq('status', 'running');
 
         await logBotEvent(bot_id, user.id, 'stop', 'Bot stopped gracefully', 'info');
 

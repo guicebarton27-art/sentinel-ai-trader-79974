@@ -106,15 +106,66 @@ const CandlestickShape = (props: any) => {
   );
 };
 
-export const LiveCandleChart = () => {
+interface LiveCandleChartProps {
+  realPositions?: Array<{
+    id: string;
+    symbol: string;
+    side: 'buy' | 'sell';
+    status: string;
+    quantity: number;
+    entry_price: number;
+    current_price?: number | null;
+    stop_loss_price?: number | null;
+    take_profit_price?: number | null;
+    unrealized_pnl?: number | null;
+  }>;
+  realOrders?: Array<{
+    id: string;
+    symbol: string;
+    side: string;
+    status: string;
+    quantity: number;
+    average_fill_price?: number | null;
+    created_at: string;
+  }>;
+}
+
+export const LiveCandleChart = ({ realPositions = [], realOrders = [] }: LiveCandleChartProps) => {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [currentPrice, setCurrentPrice] = useState(95234.56);
   const [priceChange, setPriceChange] = useState(1.24);
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [position, setPosition] = useState<Position | null>(null);
+  const [simulatedTrades, setSimulatedTrades] = useState<Trade[]>([]);
+  const [simulatedPosition, setSimulatedPosition] = useState<Position | null>(null);
   const [timeframe, setTimeframe] = useState("1m");
   const [isLive, setIsLive] = useState(true);
   const [lastSignal, setLastSignal] = useState<{ action: string; confidence: number } | null>(null);
+  
+  // Convert real positions to display format
+  const openRealPosition = realPositions.find(p => p.status === 'open');
+  const position: Position | null = openRealPosition ? {
+    entryPrice: openRealPosition.entry_price,
+    stopLoss: openRealPosition.stop_loss_price || openRealPosition.entry_price * 0.98,
+    takeProfit: openRealPosition.take_profit_price || openRealPosition.entry_price * 1.03,
+    side: openRealPosition.side,
+    size: openRealPosition.quantity,
+    unrealizedPnl: openRealPosition.unrealized_pnl || 0
+  } : simulatedPosition;
+  
+  // Convert real orders to trades format
+  const realTrades: Trade[] = realOrders
+    .filter(o => o.status === 'filled' && o.average_fill_price)
+    .slice(0, 10)
+    .map(o => ({
+      id: o.id,
+      time: new Date(o.created_at).getTime(),
+      price: o.average_fill_price!,
+      side: o.side as 'buy' | 'sell',
+      size: o.quantity,
+      pnl: undefined
+    }));
+  
+  const trades = realTrades.length > 0 ? realTrades : simulatedTrades;
+  const hasRealData = realPositions.length > 0 || realOrders.length > 0;
 
   // Generate initial candle data
   useEffect(() => {
@@ -207,54 +258,57 @@ export const LiveCandleChart = () => {
         });
       }
 
-      // Simulate trades
-      if (Math.random() > 0.97) {
-        const side = Math.random() > 0.5 ? "buy" : "sell";
-        setTrades(prev => [{
-          id: crypto.randomUUID(),
-          time: Date.now(),
-          price: currentPrice,
-          side,
-          size: 0.01 + Math.random() * 0.05,
-          pnl: (Math.random() - 0.4) * 500
-        }, ...prev.slice(0, 9)]);
-      }
-
-      // Simulate position updates
-      if (Math.random() > 0.96 && !position) {
-        const side = Math.random() > 0.5 ? "buy" : "sell";
-        setPosition({
-          entryPrice: currentPrice,
-          stopLoss: side === "buy" ? currentPrice * 0.98 : currentPrice * 1.02,
-          takeProfit: side === "buy" ? currentPrice * 1.03 : currentPrice * 0.97,
-          side,
-          size: 0.05,
-          unrealizedPnl: 0
-        });
-      } else if (position) {
-        const pnl = position.side === "buy"
-          ? (currentPrice - position.entryPrice) * position.size * 1000
-          : (position.entryPrice - currentPrice) * position.size * 1000;
-        
-        setPosition(prev => prev ? { ...prev, unrealizedPnl: pnl } : null);
-
-        // Close position randomly
-        if (Math.random() > 0.992) {
-          setTrades(prev => [{
+      // Only simulate trades/positions if we don't have real data
+      if (!hasRealData) {
+        // Simulate trades
+        if (Math.random() > 0.97) {
+          const side = Math.random() > 0.5 ? "buy" : "sell";
+          setSimulatedTrades(prev => [{
             id: crypto.randomUUID(),
             time: Date.now(),
             price: currentPrice,
-            side: position.side === "buy" ? "sell" : "buy",
-            size: position.size,
-            pnl: position.unrealizedPnl
+            side,
+            size: 0.01 + Math.random() * 0.05,
+            pnl: (Math.random() - 0.4) * 500
           }, ...prev.slice(0, 9)]);
-          setPosition(null);
+        }
+
+        // Simulate position updates
+        if (Math.random() > 0.96 && !simulatedPosition) {
+          const side = Math.random() > 0.5 ? "buy" : "sell";
+          setSimulatedPosition({
+            entryPrice: currentPrice,
+            stopLoss: side === "buy" ? currentPrice * 0.98 : currentPrice * 1.02,
+            takeProfit: side === "buy" ? currentPrice * 1.03 : currentPrice * 0.97,
+            side,
+            size: 0.05,
+            unrealizedPnl: 0
+          });
+        } else if (simulatedPosition) {
+          const pnl = simulatedPosition.side === "buy"
+            ? (currentPrice - simulatedPosition.entryPrice) * simulatedPosition.size * 1000
+            : (simulatedPosition.entryPrice - currentPrice) * simulatedPosition.size * 1000;
+          
+          setSimulatedPosition(prev => prev ? { ...prev, unrealizedPnl: pnl } : null);
+
+          // Close position randomly
+          if (Math.random() > 0.992) {
+            setSimulatedTrades(prev => [{
+              id: crypto.randomUUID(),
+              time: Date.now(),
+              price: currentPrice,
+              side: simulatedPosition.side === "buy" ? "sell" : "buy",
+              size: simulatedPosition.size,
+              pnl: simulatedPosition.unrealizedPnl
+            }, ...prev.slice(0, 9)]);
+            setSimulatedPosition(null);
+          }
         }
       }
     }, 800);
 
     return () => clearInterval(interval);
-  }, [isLive, candles.length, position, currentPrice]);
+  }, [isLive, candles.length, simulatedPosition, currentPrice, hasRealData]);
 
   // Calculate chart data for candlesticks
   const chartData = useMemo(() => {
@@ -296,6 +350,15 @@ export const LiveCandleChart = () => {
                   <Radio className="h-3 w-3 animate-pulse" />
                   LIVE
                 </Badge>
+                {hasRealData ? (
+                  <Badge variant="outline" className="gap-1 text-xs bg-primary/10 text-primary border-primary/30">
+                    DB Connected
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="gap-1 text-xs bg-warning/10 text-warning border-warning/30">
+                    Demo Mode
+                  </Badge>
+                )}
               </CardTitle>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-2xl font-bold font-mono">${currentPrice.toFixed(2)}</span>
