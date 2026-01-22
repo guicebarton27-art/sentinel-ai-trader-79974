@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseBoolean, requireEnv } from "../_shared/env.ts";
 import { logError } from "../_shared/logging.ts";
+import { createTraceId } from "../_shared/spine.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,10 +52,13 @@ async function logBotEvent(
   await serviceClient.from('bot_events').insert({
     bot_id: botId,
     user_id: userId,
+    run_id: payload.run_id ?? null,
+    trace_id: createTraceId(),
     event_type: eventType,
     severity,
     message,
     payload,
+    payload_json: payload,
     bot_capital: metrics?.capital ?? null,
     bot_pnl: metrics?.pnl ?? null,
     market_price: metrics?.price ?? null,
@@ -319,28 +323,42 @@ serve(async (req) => {
 
         if (botError) throw botError;
 
-        // Get open positions
-        const { data: positions } = await supabaseClient
+        const { data: run } = await supabaseClient
+          .from('runs')
+          .select('*')
+          .eq('bot_id', bot_id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const positionsQuery = supabaseClient
           .from('positions')
           .select('*')
-          .eq('bot_id', bot_id)
           .eq('status', 'open');
-
-        // Get recent orders
-        const { data: recentOrders } = await supabaseClient
+        const ordersQuery = supabaseClient
           .from('orders')
           .select('*')
-          .eq('bot_id', bot_id)
           .order('created_at', { ascending: false })
           .limit(10);
-
-        // Get recent events
-        const { data: recentEvents } = await supabaseClient
+        const eventsQuery = supabaseClient
           .from('bot_events')
           .select('*')
-          .eq('bot_id', bot_id)
           .order('created_at', { ascending: false })
-          .limit(20);
+          .limit(50);
+
+        if (run?.id) {
+          positionsQuery.eq('run_id', run.id);
+          ordersQuery.eq('run_id', run.id);
+          eventsQuery.eq('run_id', run.id);
+        } else {
+          positionsQuery.eq('bot_id', bot_id);
+          ordersQuery.eq('bot_id', bot_id);
+          eventsQuery.eq('bot_id', bot_id);
+        }
+
+        const { data: positions } = await positionsQuery;
+        const { data: recentOrders } = await ordersQuery;
+        const { data: recentEvents } = await eventsQuery;
 
         // Check heartbeat health
         const lastHeartbeat = bot.last_heartbeat_at ? new Date(bot.last_heartbeat_at) : null;
@@ -349,6 +367,7 @@ serve(async (req) => {
 
         return new Response(JSON.stringify({
           bot,
+          run,
           positions: positions || [],
           recent_orders: recentOrders || [],
           recent_events: recentEvents || [],

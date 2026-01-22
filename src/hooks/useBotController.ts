@@ -77,6 +77,15 @@ export interface BotEvent {
   created_at: string;
 }
 
+export interface Run {
+  id: string;
+  status: string;
+  mode: 'paper' | 'backtest' | 'live';
+  last_tick_at: string | null;
+  config_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
 export interface BotHealth {
   is_healthy: boolean;
   last_heartbeat_age_seconds: number | null;
@@ -86,6 +95,7 @@ export interface BotHealth {
 export function useBotController() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [activeBot, setActiveBot] = useState<Bot | null>(null);
+  const [activeRun, setActiveRun] = useState<Run | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [recentEvents, setRecentEvents] = useState<BotEvent[]>([]);
@@ -129,6 +139,7 @@ export function useBotController() {
         // Update in bots list too
         setBots(prev => prev.map(b => b.id === data.bot.id ? data.bot : b));
       }
+      if (data?.run) setActiveRun(data.run);
       if (data?.positions) setPositions(data.positions);
       if (data?.recent_orders) setRecentOrders(data.recent_orders);
       if (data?.recent_events) setRecentEvents(data.recent_events);
@@ -180,16 +191,13 @@ export function useBotController() {
   const startBot = useCallback(async (botId: string, mode?: 'paper' | 'live') => {
     try {
       setError(null);
-      const { data, error: startError } = await supabase.functions.invoke('bot-controller/start', {
-        body: { bot_id: botId, mode }
+      const { data, error: startError } = await supabase.functions.invoke('run-controller/request_transition', {
+        body: { bot_id: botId, action: 'start', mode }
       });
       
       if (startError) throw startError;
       
-      if (data?.bot) {
-        setActiveBot(data.bot);
-        setBots(prev => prev.map(b => b.id === data.bot.id ? data.bot : b));
-      }
+      if (data?.run) setActiveRun(data.run);
       
       return data;
     } catch (err) {
@@ -202,16 +210,13 @@ export function useBotController() {
   const pauseBot = useCallback(async (botId: string) => {
     try {
       setError(null);
-      const { data, error: pauseError } = await supabase.functions.invoke('bot-controller/pause', {
-        body: { bot_id: botId }
+      const { data, error: pauseError } = await supabase.functions.invoke('run-controller/request_transition', {
+        body: { bot_id: botId, action: 'pause' }
       });
       
       if (pauseError) throw pauseError;
       
-      if (data?.bot) {
-        setActiveBot(data.bot);
-        setBots(prev => prev.map(b => b.id === data.bot.id ? data.bot : b));
-      }
+      if (data?.run) setActiveRun(data.run);
       
       return data;
     } catch (err) {
@@ -224,16 +229,13 @@ export function useBotController() {
   const stopBot = useCallback(async (botId: string) => {
     try {
       setError(null);
-      const { data, error: stopError } = await supabase.functions.invoke('bot-controller/stop', {
-        body: { bot_id: botId }
+      const { data, error: stopError } = await supabase.functions.invoke('run-controller/request_transition', {
+        body: { bot_id: botId, action: 'stop' }
       });
       
       if (stopError) throw stopError;
       
-      if (data?.bot) {
-        setActiveBot(data.bot);
-        setBots(prev => prev.map(b => b.id === data.bot.id ? data.bot : b));
-      }
+      if (data?.run) setActiveRun(data.run);
       
       return data;
     } catch (err) {
@@ -246,20 +248,48 @@ export function useBotController() {
   const killBot = useCallback(async (botId: string) => {
     try {
       setError(null);
-      const { data, error: killError } = await supabase.functions.invoke('bot-controller/kill', {
-        body: { bot_id: botId }
+      const { data, error: killError } = await supabase.functions.invoke('run-controller/request_transition', {
+        body: { bot_id: botId, action: 'kill' }
       });
       
       if (killError) throw killError;
       
-      if (data?.bot) {
-        setActiveBot(data.bot);
-        setBots(prev => prev.map(b => b.id === data.bot.id ? data.bot : b));
-      }
+      if (data?.run) setActiveRun(data.run);
       
       return data;
     } catch (err) {
       console.error('Error killing bot:', err);
+      throw err;
+    }
+  }, []);
+
+  const armLive = useCallback(async (botId: string) => {
+    try {
+      setError(null);
+      const { data, error: armError } = await supabase.functions.invoke('run-controller/request_transition', {
+        body: { bot_id: botId, action: 'arm_live' }
+      });
+      
+      if (armError) throw armError;
+      if (data?.run) setActiveRun(data.run);
+      return data;
+    } catch (err) {
+      console.error('Error arming live trading:', err);
+      throw err;
+    }
+  }, []);
+
+  const runOneTick = useCallback(async (botId: string) => {
+    try {
+      setError(null);
+      const { data, error: tickError } = await supabase.functions.invoke('run-controller/run_one_tick', {
+        body: { bot_id: botId }
+      });
+      
+      if (tickError) throw tickError;
+      return data;
+    } catch (err) {
+      console.error('Error running one tick:', err);
       throw err;
     }
   }, []);
@@ -331,6 +361,7 @@ export function useBotController() {
 
       setBots([]);
       setActiveBot(null);
+      setActiveRun(null);
       setPositions([]);
       setRecentOrders([]);
       setRecentEvents([]);
@@ -348,6 +379,8 @@ export function useBotController() {
   useEffect(() => {
     if (!activeBot) return;
 
+    fetchBotStatus(activeBot.id);
+
     const channel = supabase
       .channel(`bot-${activeBot.id}`)
       .on(
@@ -363,6 +396,20 @@ export function useBotController() {
             const newBot = payload.new as Bot;
             setActiveBot(newBot);
             setBots(prev => prev.map(b => b.id === newBot.id ? newBot : b));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'runs',
+          filter: `bot_id=eq.${activeBot.id}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            setActiveRun(payload.new as Run);
           }
         }
       )
@@ -403,7 +450,7 @@ export function useBotController() {
         },
         (payload) => {
           if (payload.new) {
-            setRecentEvents(prev => [payload.new as BotEvent, ...prev.slice(0, 19)]);
+            setRecentEvents(prev => [payload.new as BotEvent, ...prev.slice(0, 49)]);
           }
         }
       )
@@ -424,6 +471,7 @@ export function useBotController() {
     // State
     bots,
     activeBot,
+    activeRun,
     positions,
     recentOrders,
     recentEvents,
@@ -440,6 +488,8 @@ export function useBotController() {
     pauseBot,
     stopBot,
     killBot,
+    armLive,
+    runOneTick,
     updateBot,
     deleteBot,
   };
