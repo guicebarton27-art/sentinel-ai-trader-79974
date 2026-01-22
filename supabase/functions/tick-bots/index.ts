@@ -771,16 +771,42 @@ async function recordRiskRejection(
 }
 
 // Process a single bot tick
-async function processBotTick(supabase: SupabaseClient, bot: Bot, trigger: RunTrigger): Promise<void> {
-  let runId: string | null = null;
+async function processBotTick(
+  supabase: SupabaseClient,
+  bot: Bot,
+  trigger: RunTrigger,
+  existingRunId?: string,
+): Promise<void> {
+  let runId: string | null = existingRunId ?? null;
   const traceId = crypto.randomUUID();
 
   try {
-    runId = await createRun(supabase, bot, trigger, traceId);
-    if (!runId) {
-      throw new Error('Run creation failed');
+    if (runId) {
+      await supabase.rpc('request_run_transition', {
+        run_id: runId,
+        target_state: 'running',
+        transition_trace_id: traceId,
+        transition_note: 'Manual tick started',
+      });
+    } else {
+      runId = await createRun(supabase, bot, trigger, traceId);
+      if (!runId) {
+        throw new Error('Run creation failed');
+      }
     }
     const traceContext = { runId, traceId };
+
+    await logEvent(
+      supabase,
+      bot.id,
+      bot.user_id,
+      'tick_start',
+      'Tick started',
+      'info',
+      { trigger, trace_id: traceId },
+      undefined,
+      traceContext,
+    );
 
     // Fetch current market data
     const marketData = await fetchMarketData(bot.symbol);
@@ -1001,12 +1027,29 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot, trigger: RunTr
     }
 
     if (runId) {
+      await supabase
+        .from('runs')
+        .update({ last_tick_at: new Date().toISOString() } as unknown)
+        .eq('id', runId);
+
       await supabase.rpc('request_run_transition', {
         run_id: runId,
         target_state: 'completed',
         transition_trace_id: traceId,
         transition_note: 'Tick completed',
       });
+
+      await logEvent(
+        supabase,
+        bot.id,
+        bot.user_id,
+        'tick_end',
+        'Tick completed',
+        'info',
+        { price: marketData.price, trace_id: traceId },
+        { capital: Number(bot.current_capital), pnl: Number(bot.total_pnl), price: marketData.price },
+        traceContext,
+      );
     }
   } catch (err: unknown) {
     const error = err as Error;
@@ -1068,19 +1111,25 @@ serve(async (req) => {
     const rawBody = req.method === 'POST' ? await req.text() : '';
     const body = rawBody ? JSON.parse(rawBody) : {};
     const targetBotId = body?.bot_id as string | undefined;
+    const runId = body?.run_id as string | undefined;
     const trigger = (body?.trigger as RunTrigger | undefined) ?? 'scheduled';
 
     logInfo({ component: 'tick-bots', message: 'Tick-bots starting', context: { trigger, targetBotId } });
+    if (runId && !targetBotId) {
+      return new Response(JSON.stringify({ error: 'run_id requires bot_id' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Get all running bots
     const botsQuery = supabase
       .from('bots')
-      .select('*')
-      .eq('status', 'running');
+      .select('*');
 
     const { data: bots, error: botsError } = targetBotId
       ? await botsQuery.eq('id', targetBotId)
-      : await botsQuery;
+      : await botsQuery.eq('status', 'running');
 
     if (botsError) throw botsError;
 
@@ -1095,7 +1144,7 @@ serve(async (req) => {
 
     // Process each bot
     const results = await Promise.allSettled(
-      bots.map(bot => processBotTick(supabase, bot as Bot, trigger))
+      bots.map(bot => processBotTick(supabase, bot as Bot, trigger, runId))
     );
 
     const successful = results.filter(r => r.status === 'fulfilled').length;

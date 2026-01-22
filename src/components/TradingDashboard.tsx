@@ -46,6 +46,7 @@ import { AutoMLAgent } from './trading/AutoMLAgent';
 import { SystemStatusWidget } from './trading/SystemStatusWidget';
 import { LiveTradesFeed } from './trading/LiveTradesFeed';
 import { ProfitabilityBlueprint } from './trading/ProfitabilityBlueprint';
+import { RunControlPanel } from './trading/RunControlPanel';
 import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -455,6 +456,7 @@ export const TradingDashboard = () => {
             </div>
             <ApiKeyManager />
             <BotControls />
+            <RunControlPanel />
           </TabsContent>
         </Tabs>
       </main>
