@@ -291,7 +291,7 @@ async function authenticateUser(req: Request) {
     throw new Error("Invalid or expired token");
   }
 
-  return user;
+  return { id: user.id, email: user.email ?? 'unknown' };
 }
 
 // Log audit event

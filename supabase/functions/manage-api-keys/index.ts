@@ -139,7 +139,7 @@ async function authenticateUser(req: Request) {
     throw new Error('Invalid or expired token');
   }
 
-  return { user, supabase };
+  return { user: { id: user.id, email: user.email ?? 'unknown' }, supabase };
 }
 
 serve(async (req) => {
