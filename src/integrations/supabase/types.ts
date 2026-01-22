@@ -1198,6 +1198,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           id: string
+          last_tick_at: string | null
           metadata: Json
           requested_at: string
           run_type: string
@@ -1213,6 +1214,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_tick_at?: string | null
           metadata?: Json
           requested_at?: string
           run_type?: string
@@ -1228,6 +1230,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_tick_at?: string | null
           metadata?: Json
           requested_at?: string
           run_type?: string
@@ -1453,6 +1456,8 @@ export type Database = {
         | "pause"
         | "resume"
         | "tick"
+        | "tick_start"
+        | "tick_end"
         | "order"
         | "fill"
         | "error"
@@ -1613,6 +1618,8 @@ export const Constants = {
         "pause",
         "resume",
         "tick",
+        "tick_start",
+        "tick_end",
         "order",
         "fill",
         "error",
