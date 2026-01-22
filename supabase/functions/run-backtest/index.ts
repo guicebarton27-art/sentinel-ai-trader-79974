@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 import { requireEnv } from "../_shared/env.ts";
 import { logError, logInfo, logWarn } from "../_shared/logging.ts";
-import { MarketCandle } from "../_shared/trading.ts";
+import { createTradeDecision, evaluateRisk, MarketCandle, RiskInputs } from "../_shared/trading.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -183,7 +183,14 @@ function generateSignal(candles: MarketCandle[], index: number, config: Strategy
 }
 
 // Run backtest
-function runBacktest(candles: MarketCandle[], config: StrategyConfig, initialCapital: number) {
+function runBacktest(
+  candles: MarketCandle[],
+  config: StrategyConfig,
+  initialCapital: number,
+  symbol: string,
+  runId: string,
+  traceId: string,
+) {
   const trades: Trade[] = [];
   const equityCurve: { timestamp: number; equity: number; drawdown: number }[] = [];
   
@@ -245,25 +252,49 @@ function runBacktest(candles: MarketCandle[], config: StrategyConfig, initialCap
     }
 
     // Entry logic
-    if (!position) {
-      if (signal > config.signalThreshold) {
-        const positionSize = Math.min(capital * config.maxPositionSize, capital * 0.95) / candle.close;
-        position = {
-          side: 'long',
-          entry_price: candle.close,
-          entry_timestamp: candle.timestamp,
-          size: positionSize,
-          signal,
+    if (!position && Math.abs(signal) >= config.signalThreshold) {
+      const confidence = Math.min(Math.abs(signal) / Math.max(config.signalThreshold, 0.0001), 1);
+      const decision = createTradeDecision({
+        symbol,
+        side: signal > 0 ? 'buy' : 'sell',
+        entry: candle.close,
+        confidence,
+        rationale: `Signal ${signal.toFixed(4)}`,
+        currentCapital: capital,
+        positionSizePct: config.maxPositionSize,
+        stopLossPct: config.stopLoss * 100,
+        takeProfitPct: config.takeProfit * 100,
+        run_id: runId,
+        trace_id: traceId,
+        scalePositionByConfidence: true,
+      });
+
+      if (decision) {
+        const riskInputs: RiskInputs = {
+          currentCapital: capital,
+          dailyPnl: capital - initialCapital,
+          maxDailyLoss: initialCapital * 0.1,
+          maxPositionSize: config.maxPositionSize,
+          stopLossPct: config.stopLoss * 100,
+          tradesLastHour: 0,
+          maxTradesPerHour: 1000,
+          cooldownActive: false,
+          lossStreakExceeded: false,
+          killSwitchActive: false,
+          liveTradingEnabled: false,
+          mode: 'paper',
         };
-      } else if (signal < -config.signalThreshold) {
-        const positionSize = Math.min(capital * config.maxPositionSize, capital * 0.95) / candle.close;
-        position = {
-          side: 'short',
-          entry_price: candle.close,
-          entry_timestamp: candle.timestamp,
-          size: positionSize,
-          signal,
-        };
+
+        const riskCheck = evaluateRisk(decision, riskInputs);
+        if (riskCheck.allowed) {
+          position = {
+            side: decision.side === 'buy' ? 'long' : 'short',
+            entry_price: decision.entry,
+            entry_timestamp: candle.timestamp,
+            size: decision.size,
+            signal,
+          };
+        }
       }
     }
   }
@@ -413,6 +444,9 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let runId: string | null = null;
+  let traceId: string | null = null;
+
   try {
     // Authenticate user and verify role
     const { user, role, isService } = await authenticateUser(req);
@@ -452,6 +486,33 @@ serve(async (req) => {
     const supabaseUrl = requireEnv('SUPABASE_URL');
     const supabaseKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
     const supabase = createClient(supabaseUrl, supabaseKey);
+    traceId = crypto.randomUUID();
+
+    const { data: runRecord, error: runError } = await supabase
+      .from('runs')
+      .insert([{
+        user_id: isService ? null : user.id,
+        run_type: 'backtest',
+        trigger: 'backtest',
+        state: 'requested',
+        trace_id: traceId,
+      }] as unknown[])
+      .select('id')
+      .single();
+
+    if (runError) throw runError;
+
+    runId = (runRecord as { id: string }).id;
+    await supabase.rpc('request_run_transition', {
+      run_id: runId,
+      target_state: 'running',
+      transition_trace_id: traceId,
+      transition_note: 'Backtest started',
+    });
+
+    if (!runId || !traceId) {
+      throw new Error('Run initialization failed');
+    }
 
     // Fetch historical data
     const { data: candles, error: fetchError } = await supabase
@@ -489,7 +550,10 @@ serve(async (req) => {
     const { trades, equityCurve, finalCapital } = runBacktest(
       backtestCandles,
       strategyConfig,
-      initialCapital
+      initialCapital,
+      symbol,
+      runId,
+      traceId,
     );
 
     logInfo({
@@ -505,6 +569,8 @@ serve(async (req) => {
     const { data: backtestRun, error: runError } = await supabase
       .from('backtest_runs')
       .insert({
+        run_id: runId,
+        trace_id: traceId,
         name,
         symbol,
         interval,
@@ -549,6 +615,13 @@ serve(async (req) => {
       if (equityError) throw equityError;
     }
 
+    await supabase.rpc('request_run_transition', {
+      run_id: runId,
+      target_state: 'completed',
+      transition_trace_id: traceId,
+      transition_note: 'Backtest completed',
+    });
+
     return new Response(
       JSON.stringify({ 
         success: true,
@@ -561,6 +634,18 @@ serve(async (req) => {
     );
 
   } catch (error: any) {
+    if (runId && traceId) {
+      const supabaseUrl = requireEnv('SUPABASE_URL');
+      const supabaseKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+      const supabase = createClient(supabaseUrl, supabaseKey);
+      await supabase.rpc('request_run_transition', {
+        run_id: runId,
+        target_state: 'failed',
+        transition_trace_id: traceId,
+        transition_note: error.message ?? 'Backtest failed',
+      });
+    }
+
     logError({
       component: 'run-backtest',
       message: 'Error running backtest',

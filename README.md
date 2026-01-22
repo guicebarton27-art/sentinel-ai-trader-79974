@@ -256,6 +256,14 @@ npm run dev:all
 ```
 This starts the UI, edge functions, and the worker loop. The worker invokes `tick-bots` on a schedule.
 
+### Cron scheduling (Supabase)
+For hosted deployments, `pg_cron` can invoke `tick-bots` without the local worker. Configure the database settings used by the scheduler helper:
+```sql
+alter database postgres set app.settings.supabase_functions_url = '<https://YOUR-PROJECT.supabase.co/functions/v1>';
+alter database postgres set app.settings.supabase_service_role_key = '<SERVICE_ROLE_KEY>';
+```
+The migration installs a `tick-bots-schedule` cron job that calls `public.invoke_tick_bots()` every minute once these settings are present.
+
 ### Paper trading (default)
 1. Ensure `LIVE_TRADING_ENABLED=false` and `KILL_SWITCH_ENABLED=true` in `.env`.
 2. Create a bot in the UI and keep the mode set to **Paper**.

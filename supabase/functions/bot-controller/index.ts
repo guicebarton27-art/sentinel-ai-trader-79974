@@ -41,7 +41,8 @@ async function logBotEvent(
   message: string,
   severity: string = 'info',
   payload: Record<string, unknown> = {},
-  metrics?: { capital?: number; pnl?: number; price?: number }
+  metrics?: { capital?: number; pnl?: number; price?: number },
+  traceContext?: { runId?: string; traceId?: string }
 ) {
   const serviceClient = createClient(
     requireEnv('SUPABASE_URL'),
@@ -58,6 +59,8 @@ async function logBotEvent(
     bot_capital: metrics?.capital ?? null,
     bot_pnl: metrics?.pnl ?? null,
     market_price: metrics?.price ?? null,
+    run_id: traceContext?.runId ?? null,
+    trace_id: traceContext?.traceId ?? null,
   });
 }
 
@@ -94,6 +97,7 @@ serve(async (req) => {
         // Empty or invalid body is ok for some actions like 'list'
       }
     }
+    const traceId = crypto.randomUUID();
 
     switch (action) {
       case 'list': {
@@ -140,13 +144,37 @@ serve(async (req) => {
 
         if (error) throw error;
 
+        await supabaseClient
+          .from('strategy_configs')
+          .insert({
+            bot_id: bot.id,
+            user_id: user.id,
+            strategy_id: bot.strategy_id,
+            config: bot.strategy_config ?? {},
+          });
+
+        await supabaseClient
+          .from('risk_limits')
+          .insert({
+            bot_id: bot.id,
+            user_id: user.id,
+            max_position_size: bot.max_position_size,
+            max_daily_loss: bot.max_daily_loss,
+            max_leverage: bot.max_leverage,
+            cooldown_minutes: 30,
+            max_trades_per_hour: 5,
+            max_consecutive_losses: 3,
+          });
+
         await logBotEvent(
           bot.id,
           user.id,
           'config_change',
           `Bot "${bot.name}" created`,
           'info',
-          { action: 'create', config: botData }
+          { action: 'create', config: botData },
+          undefined,
+          { traceId }
         );
 
         return new Response(JSON.stringify({ bot }), {
@@ -217,7 +245,8 @@ serve(async (req) => {
           `Bot started in ${targetMode} mode`,
           'info',
           { mode: targetMode, previous_status: bot.status },
-          { capital: Number(bot.current_capital), pnl: Number(bot.total_pnl) }
+          { capital: Number(bot.current_capital), pnl: Number(bot.total_pnl) },
+          { traceId }
         );
 
         return new Response(JSON.stringify({ bot: updatedBot, message: `Bot started in ${targetMode} mode` }), {
@@ -239,7 +268,7 @@ serve(async (req) => {
 
         if (error) throw error;
 
-        await logBotEvent(bot_id, user.id, 'pause', 'Bot paused', 'info');
+        await logBotEvent(bot_id, user.id, 'pause', 'Bot paused', 'info', {}, undefined, { traceId });
 
         return new Response(JSON.stringify({ bot, message: 'Bot paused' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -260,7 +289,7 @@ serve(async (req) => {
 
         if (error) throw error;
 
-        await logBotEvent(bot_id, user.id, 'stop', 'Bot stopped gracefully', 'info');
+        await logBotEvent(bot_id, user.id, 'stop', 'Bot stopped gracefully', 'info', {}, undefined, { traceId });
 
         return new Response(JSON.stringify({ bot, message: 'Bot stopped' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -298,10 +327,57 @@ serve(async (req) => {
           'stop',
           'EMERGENCY KILL: Bot stopped, all pending orders canceled',
           'critical',
-          { action: 'kill' }
+          { action: 'kill' },
+          undefined,
+          { traceId }
         );
 
         return new Response(JSON.stringify({ bot, message: 'Emergency stop executed' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      case 'tick': {
+        const { bot_id } = body;
+        if (!bot_id) throw new Error('bot_id required');
+
+        const { data: bot, error: botError } = await supabaseClient
+          .from('bots')
+          .select('id')
+          .eq('id', bot_id)
+          .eq('user_id', user.id)
+          .single();
+
+        if (botError || !bot) throw new Error('Bot not found');
+
+        const response = await fetch(`${requireEnv('SUPABASE_URL')}/functions/v1/tick-bots`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-service-role': requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
+          },
+          body: JSON.stringify({ bot_id, trigger: 'manual' }),
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Manual tick failed (${response.status}): ${text}`);
+        }
+
+        const payload = await response.json();
+
+        await logBotEvent(
+          bot_id,
+          user.id,
+          'tick',
+          'Manual tick requested',
+          'info',
+          { trigger: 'manual', payload },
+          undefined,
+          { traceId }
+        );
+
+        return new Response(JSON.stringify({ message: 'Tick requested', payload }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
@@ -390,13 +466,40 @@ serve(async (req) => {
 
         if (error) throw error;
 
+        if (filteredUpdates.strategy_id || filteredUpdates.strategy_config) {
+          await supabaseClient
+            .from('strategy_configs')
+            .upsert({
+              bot_id: bot_id,
+              user_id: user.id,
+              strategy_id: (filteredUpdates.strategy_id as string | undefined) ?? bot.strategy_id,
+              config: (filteredUpdates.strategy_config as Record<string, unknown> | undefined) ?? bot.strategy_config ?? {},
+            }, { onConflict: 'bot_id' });
+        }
+
+        if (filteredUpdates.max_position_size !== undefined ||
+            filteredUpdates.max_daily_loss !== undefined ||
+            filteredUpdates.max_leverage !== undefined) {
+          await supabaseClient
+            .from('risk_limits')
+            .upsert({
+              bot_id: bot_id,
+              user_id: user.id,
+              max_position_size: (filteredUpdates.max_position_size as number | undefined) ?? bot.max_position_size,
+              max_daily_loss: (filteredUpdates.max_daily_loss as number | undefined) ?? bot.max_daily_loss,
+              max_leverage: (filteredUpdates.max_leverage as number | undefined) ?? bot.max_leverage,
+            }, { onConflict: 'bot_id' });
+        }
+
         await logBotEvent(
           bot_id,
           user.id,
           'config_change',
           'Bot configuration updated',
           'info',
-          { updates: filteredUpdates }
+          { updates: filteredUpdates },
+          undefined,
+          { traceId }
         );
 
         return new Response(JSON.stringify({ bot }), {

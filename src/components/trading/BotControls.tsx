@@ -46,6 +46,7 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
     stopBot,
     killBot,
     updateBot,
+    runTick,
     deleteBot
   } = useBotController();
   
@@ -151,6 +152,23 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
       });
     }
   }, [activeBot, stopBot, toast]);
+
+  const handleRunTick = useCallback(async () => {
+    if (!activeBot) return;
+    try {
+      await runTick(activeBot.id);
+      toast({
+        title: 'Tick Requested',
+        description: 'Run 1 tick now queued for execution',
+      });
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: 'Failed to request a manual tick',
+        variant: 'destructive',
+      });
+    }
+  }, [activeBot, runTick, toast]);
 
   const handleKillBot = useCallback(async () => {
     if (!activeBot) return;
@@ -395,6 +413,15 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
                   >
                     <Play className="h-4 w-4" />
                     Start Bot
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleRunTick}
+                    disabled={botStatus !== 'running'}
+                    className="flex items-center gap-2"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Run 1 tick now
                   </Button>
                   <Button 
                     variant="secondary"

@@ -75,14 +75,42 @@ serve(async (req) => {
       testBot = newBot;
     }
 
+    const traceId = crypto.randomUUID();
+    const { data: runRecord, error: runRecordError } = await serviceClient
+      .from('runs')
+      .insert({
+        bot_id: testBot.id,
+        user_id: testBot.user_id,
+        run_type: 'test',
+        trigger: 'manual',
+        state: 'requested',
+        trace_id: traceId,
+      })
+      .select('id')
+      .single();
+
+    if (runRecordError) {
+      throw runRecordError;
+    }
+
+    const runId = (runRecord as { id: string }).id;
+    await serviceClient.rpc('request_run_transition', {
+      run_id: runId,
+      target_state: 'running',
+      transition_trace_id: traceId,
+      transition_note: 'Test run started',
+    });
+
     // TEST A: Create a bot_run record and verify it exists
     const testRunId = crypto.randomUUID();
-    const { data: runData, error: runError } = await serviceClient
+    const { data: botRunData, error: botRunError } = await serviceClient
       .from('bot_runs')
       .insert({
         id: testRunId,
         bot_id: testBot.id,
         user_id: testBot.user_id,
+        run_id: runId,
+        trace_id: traceId,
         mode: 'paper',
         status: 'running',
         starting_capital: testBot.current_capital,
@@ -91,11 +119,11 @@ serve(async (req) => {
       .select()
       .single();
 
-    if (runError) {
+    if (botRunError) {
       results.push({
         test: 'Test A: Create strategy_run/bot_run',
         passed: false,
-        details: `Failed to create bot_run: ${runError.message}`,
+        details: `Failed to create bot_run: ${botRunError.message}`,
       });
     } else {
       // Verify it exists by querying
@@ -126,6 +154,8 @@ serve(async (req) => {
         id: testOrderId,
         bot_id: testBot.id,
         user_id: testBot.user_id,
+        run_id: runId,
+        trace_id: traceId,
         client_order_id: clientOrderId,
         symbol: 'BTC/USD',
         side: 'buy',
@@ -151,6 +181,23 @@ serve(async (req) => {
         details: `Failed to create order: ${orderError.message}`,
       });
     } else {
+      await serviceClient
+        .from('fills')
+        .insert({
+          order_id: testOrderId,
+          bot_id: testBot.id,
+          user_id: testBot.user_id,
+          run_id: runId,
+          trace_id: traceId,
+          symbol: 'BTC/USD',
+          side: 'buy',
+          quantity: testQuantity,
+          price: testPrice,
+          fee: testQuantity * testPrice * 0.001,
+          fee_currency: 'USD',
+          executed_at: new Date().toISOString(),
+        });
+
       results.push({
         test: 'Test B: Create order',
         passed: true,
@@ -167,6 +214,8 @@ serve(async (req) => {
         id: testPositionId,
         bot_id: testBot.id,
         user_id: testBot.user_id,
+        run_id: runId,
+        trace_id: traceId,
         symbol: 'BTC/USD',
         side: 'buy',
         status: 'open',
@@ -202,6 +251,8 @@ serve(async (req) => {
       .insert({
         bot_id: testBot.id,
         user_id: testBot.user_id,
+        run_id: runId,
+        trace_id: traceId,
         event_type: 'fill',
         severity: 'info',
         message: `Test fill: BUY ${testQuantity} BTC @ $${testPrice}`,
@@ -324,10 +375,19 @@ serve(async (req) => {
       .update({ status: 'completed', ended_at: new Date().toISOString() })
       .eq('id', testRunId);
 
+    await serviceClient.rpc('request_run_transition', {
+      run_id: runId,
+      target_state: 'completed',
+      transition_trace_id: traceId,
+      transition_note: 'Test run completed',
+    });
+
     // Cleanup test data
+    await serviceClient.from('fills').delete().eq('order_id', testOrderId);
     await serviceClient.from('positions').delete().eq('id', testPositionId);
     await serviceClient.from('orders').delete().eq('id', testOrderId);
     await serviceClient.from('bot_runs').delete().eq('id', testRunId);
+    await serviceClient.from('runs').delete().eq('id', runId);
 
     const allPassed = results.every(r => r.passed);
 
