@@ -48,6 +48,7 @@ export interface RiskInputs {
   dailyPnl: number;
   maxDailyLoss: number;
   maxPositionSize: number;
+  maxLeverage: number;
   stopLossPct: number;
   tradesLastHour: number;
   maxTradesPerHour: number;
@@ -55,6 +56,8 @@ export interface RiskInputs {
   lossStreakExceeded: boolean;
   killSwitchActive: boolean;
   liveTradingEnabled: boolean;
+  marketDataFresh: boolean;
+  aiConfidenceOk: boolean;
   mode: 'paper' | 'live';
 }
 
@@ -114,6 +117,10 @@ export const evaluateRisk = (decision: TradeDecision, inputs: RiskInputs): RiskC
     flags.push('POSITION_SIZE_EXCEEDED');
   }
 
+  if (orderValue > inputs.currentCapital * inputs.maxLeverage) {
+    flags.push('MAX_LEVERAGE_EXCEEDED');
+  }
+
   if (inputs.stopLossPct <= 0) {
     flags.push('STOP_LOSS_REQUIRED');
   }
@@ -128,6 +135,14 @@ export const evaluateRisk = (decision: TradeDecision, inputs: RiskInputs): RiskC
 
   if (inputs.lossStreakExceeded) {
     flags.push('LOSS_STREAK_LIMIT_EXCEEDED');
+  }
+
+  if (!inputs.marketDataFresh) {
+    flags.push('MARKET_DATA_STALE');
+  }
+
+  if (!inputs.aiConfidenceOk) {
+    flags.push('AI_CONFIDENCE_BELOW_THRESHOLD');
   }
 
   return { allowed: flags.length === 0, flags };

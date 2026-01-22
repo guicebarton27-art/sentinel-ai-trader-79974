@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseBoolean, parseNumber, requireEnv } from "../_shared/env.ts";
 import { logError, logInfo, logWarn } from "../_shared/logging.ts";
+import { ExecutionEngine, ExecutionMarketData, ExecutionRun, getLiveConfig, LiveKrakenExecutionEngine, PaperExecutionEngine } from "../_shared/execution.ts";
 import { generateBaselineSignal, evaluateRisk, MarketTick, OrderSide, TradeDecision, RiskInputs } from "../_shared/trading.ts";
 
 const corsHeaders = {
@@ -51,6 +52,8 @@ interface MarketData {
   ask: number;
   volume_24h: number;
   change_24h: number;
+  source: 'live' | 'fallback';
+  fetched_at: string;
 }
 
 interface AiStrategyDecision {
@@ -76,6 +79,19 @@ interface RiskState {
   killSwitchActive: boolean;
 }
 
+async function getActiveRun(supabase: SupabaseClient, bot: Bot): Promise<ExecutionRun | null> {
+  const { data: run } = await supabase
+    .from('bot_runs')
+    .select('id, mode, status, live_armed, arm_requested_at, armed_at, summary')
+    .eq('bot_id', bot.id)
+    .eq('status', 'running')
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return run as ExecutionRun | null;
+}
+
 // Get service client for server-side operations
 function getServiceClient(): SupabaseClient {
   return createClient(
@@ -86,6 +102,7 @@ function getServiceClient(): SupabaseClient {
 
 // Fetch real market data from Kraken public API
 async function fetchMarketData(symbol: string): Promise<MarketData> {
+  const fetchedAt = new Date().toISOString();
   try {
     // Convert symbol format (BTC/USD -> XXBTZUSD)
     const krakenSymbol = symbol.replace('BTC', 'XBT').replace('/', '');
@@ -111,6 +128,8 @@ async function fetchMarketData(symbol: string): Promise<MarketData> {
       ask: parseFloat(pairData.a[0]),
       volume_24h: parseFloat(pairData.v[1]),
       change_24h: parseFloat(pairData.p[1]),
+      source: 'live',
+      fetched_at: fetchedAt,
     };
   } catch (error) {
     logWarn({
@@ -130,6 +149,8 @@ async function fetchMarketData(symbol: string): Promise<MarketData> {
       ask: basePrice + 10,
       volume_24h: volume,
       change_24h: change,
+      source: 'fallback',
+      fetched_at: fetchedAt,
     };
   }
 }
@@ -292,7 +313,8 @@ async function logEvent(
   message: string,
   severity: string = 'info',
   payload: Record<string, unknown> = {},
-  metrics?: { capital?: number; pnl?: number; price?: number }
+  metrics?: { capital?: number; pnl?: number; price?: number },
+  runId?: string | null
 ) {
   try {
     await supabase.from('bot_events').insert([{
@@ -301,7 +323,7 @@ async function logEvent(
       event_type: eventType,
       severity,
       message,
-      payload,
+      payload: { ...payload, run_id: runId ?? null },
       bot_capital: metrics?.capital ?? null,
       bot_pnl: metrics?.pnl ?? null,
       market_price: metrics?.price ?? null,
@@ -609,7 +631,8 @@ async function recordRiskRejection(
   supabase: SupabaseClient,
   bot: Bot,
   decision: TradeDecision,
-  flags: string[]
+  flags: string[],
+  runId?: string | null
 ) {
   await supabase
     .from('orders')
@@ -628,17 +651,91 @@ async function recordRiskRejection(
       strategy_id: bot.strategy_id,
       reason: decision.rationale,
       risk_checked: true,
-      risk_flags: { flags, trace_id: decision.trace_id },
+      risk_flags: { flags, trace_id: decision.trace_id, run_id: runId ?? null },
       submitted_at: new Date().toISOString(),
     }] as unknown[])
     .select()
     .single();
 }
 
+async function executeDecisionWithRisk(
+  supabase: SupabaseClient,
+  bot: Bot,
+  decision: TradeDecision,
+  marketData: MarketData,
+  run: ExecutionRun | null,
+  traceId: string,
+  aiConfidenceOk: boolean,
+): Promise<void> {
+  const cooldownMinutes = parseNumber(Deno.env.get('COOLDOWN_MINUTES_AFTER_LOSS'), 30);
+  const tradeWindowMinutes = 60;
+  const maxTradesPerHour = parseNumber(Deno.env.get('MAX_TRADES_PER_HOUR'), 5);
+  const maxLossStreak = Math.max(1, parseNumber(Deno.env.get('MAX_CONSECUTIVE_LOSSES'), 3));
+  const riskState = await getRiskState(supabase, bot, tradeWindowMinutes, cooldownMinutes, maxLossStreak);
+  const systemKillSwitch = parseBoolean(Deno.env.get('KILL_SWITCH_ENABLED'), true);
+  const marketDataFresh = bot.mode === 'paper' ? true : marketData.source === 'live';
+  const riskInputs: RiskInputs = {
+    currentCapital: Number(bot.current_capital),
+    dailyPnl: Number(bot.daily_pnl),
+    maxDailyLoss: Number(bot.max_daily_loss),
+    maxPositionSize: Number(bot.max_position_size),
+    maxLeverage: Number(bot.max_leverage),
+    stopLossPct: Number(bot.stop_loss_pct),
+    tradesLastHour: riskState.tradesLastHour,
+    maxTradesPerHour,
+    cooldownActive: riskState.cooldownActive,
+    lossStreakExceeded: riskState.lossStreakExceeded,
+    killSwitchActive: systemKillSwitch || riskState.killSwitchActive,
+    liveTradingEnabled: parseBoolean(Deno.env.get('LIVE_TRADING_ENABLED'), false),
+    marketDataFresh,
+    aiConfidenceOk: bot.mode === 'paper' ? true : aiConfidenceOk,
+    mode: bot.mode,
+  };
+
+  const riskCheck = evaluateRisk(decision, riskInputs);
+
+  if (riskCheck.allowed) {
+    const executionMarketData: ExecutionMarketData = {
+      price: marketData.price,
+      bid: marketData.bid,
+      ask: marketData.ask,
+      source: marketData.source,
+      fetched_at: marketData.fetched_at,
+    };
+    const killSwitchActive = systemKillSwitch || riskState.killSwitchActive;
+    const engine: ExecutionEngine = bot.mode === 'paper'
+      ? new PaperExecutionEngine(supabase, bot, run?.id ?? undefined)
+      : new LiveKrakenExecutionEngine({
+        supabase,
+        bot,
+        run,
+        config: getLiveConfig(killSwitchActive),
+        marketData: executionMarketData,
+        traceId,
+      });
+
+    await engine.executeTrade(decision);
+  } else {
+    await recordRiskRejection(supabase, bot, decision, riskCheck.flags, run?.id ?? null);
+    await logEvent(
+      supabase,
+      bot.id,
+      bot.user_id,
+      'risk_alert',
+      `Order blocked by risk limits: ${riskCheck.flags.join(', ')}`,
+      'warn',
+      { decision, riskCheck },
+      undefined,
+      run?.id ?? null
+    );
+  }
+}
+
 // Process a single bot tick
 async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void> {
   try {
     const traceId = crypto.randomUUID();
+    const run = await getActiveRun(supabase, bot);
 
     // Fetch current market data
     const marketData = await fetchMarketData(bot.symbol);
@@ -670,7 +767,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
       // Check stop loss / take profit
       if (position.side === 'buy') {
         if (position.stop_loss_price && marketData.price <= position.stop_loss_price) {
-          await executePaperTrade(supabase, bot, {
+          await executeDecisionWithRisk(supabase, bot, {
             symbol: bot.symbol,
             side: 'sell',
             size: position.quantity,
@@ -680,12 +777,22 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Stop loss triggered',
             trace_id: traceId,
-          });
-          await logEvent(supabase, bot.id, bot.user_id, 'risk_alert', 'Stop loss triggered', 'warn', { price: marketData.price, stop_loss: position.stop_loss_price, trace_id: traceId });
+          }, marketData, run, traceId, true);
+          await logEvent(
+            supabase,
+            bot.id,
+            bot.user_id,
+            'risk_alert',
+            'Stop loss triggered',
+            'warn',
+            { price: marketData.price, stop_loss: position.stop_loss_price, trace_id: traceId },
+            undefined,
+            run?.id ?? null
+          );
           return;
         }
         if (position.take_profit_price && marketData.price >= position.take_profit_price) {
-          await executePaperTrade(supabase, bot, {
+          await executeDecisionWithRisk(supabase, bot, {
             symbol: bot.symbol,
             side: 'sell',
             size: position.quantity,
@@ -695,12 +802,12 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Take profit triggered',
             trace_id: traceId,
-          });
+          }, marketData, run, traceId, true);
           return;
         }
       } else {
         if (position.stop_loss_price && marketData.price >= position.stop_loss_price) {
-          await executePaperTrade(supabase, bot, {
+          await executeDecisionWithRisk(supabase, bot, {
             symbol: bot.symbol,
             side: 'buy',
             size: position.quantity,
@@ -710,12 +817,22 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Stop loss triggered',
             trace_id: traceId,
-          });
-          await logEvent(supabase, bot.id, bot.user_id, 'risk_alert', 'Stop loss triggered', 'warn', { price: marketData.price, stop_loss: position.stop_loss_price, trace_id: traceId });
+          }, marketData, run, traceId, true);
+          await logEvent(
+            supabase,
+            bot.id,
+            bot.user_id,
+            'risk_alert',
+            'Stop loss triggered',
+            'warn',
+            { price: marketData.price, stop_loss: position.stop_loss_price, trace_id: traceId },
+            undefined,
+            run?.id ?? null
+          );
           return;
         }
         if (position.take_profit_price && marketData.price <= position.take_profit_price) {
-          await executePaperTrade(supabase, bot, {
+          await executeDecisionWithRisk(supabase, bot, {
             symbol: bot.symbol,
             side: 'buy',
             size: position.quantity,
@@ -725,7 +842,7 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
             confidence: 1,
             rationale: 'Take profit triggered',
             trace_id: traceId,
-          });
+          }, marketData, run, traceId, true);
           return;
         }
       }
@@ -737,7 +854,8 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
 
     const aiDecision = await fetchAiStrategyDecision(bot, marketData, traceId);
     const aiConfidenceThreshold = parseNumber(Deno.env.get('AI_CONFIDENCE_THRESHOLD'), 0.55);
-    const aiTradeDecision = aiDecision && aiDecision.confidence / 100 >= aiConfidenceThreshold
+    const aiConfidenceOk = !aiDecision || aiDecision.confidence / 100 >= aiConfidenceThreshold;
+    const aiTradeDecision = aiDecision && aiConfidenceOk
       ? buildAiTradeDecision(bot, marketData, aiDecision, traceId)
       : null;
 
@@ -756,52 +874,12 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
         'tick',
         `Signal generated (${decision.side}) via ${decisionSource}`,
         'info',
-        { signal, aiDecision, decision, trace_id: traceId }
+        { signal, aiDecision, decision, trace_id: traceId },
+        undefined,
+        run?.id ?? null
       );
 
-      const cooldownMinutes = parseNumber(Deno.env.get('COOLDOWN_MINUTES_AFTER_LOSS'), 30);
-      const tradeWindowMinutes = 60;
-      const maxTradesPerHour = parseNumber(Deno.env.get('MAX_TRADES_PER_HOUR'), 5);
-      const maxLossStreak = Math.max(1, parseNumber(Deno.env.get('MAX_CONSECUTIVE_LOSSES'), 3));
-      const riskState = await getRiskState(supabase, bot, tradeWindowMinutes, cooldownMinutes, maxLossStreak);
-      const systemKillSwitch = parseBoolean(Deno.env.get('KILL_SWITCH_ENABLED'), true);
-      const riskInputs: RiskInputs = {
-        currentCapital: Number(bot.current_capital),
-        dailyPnl: Number(bot.daily_pnl),
-        maxDailyLoss: Number(bot.max_daily_loss),
-        maxPositionSize: Number(bot.max_position_size),
-        stopLossPct: Number(bot.stop_loss_pct),
-        tradesLastHour: riskState.tradesLastHour,
-        maxTradesPerHour,
-        cooldownActive: riskState.cooldownActive,
-        lossStreakExceeded: riskState.lossStreakExceeded,
-        killSwitchActive: systemKillSwitch || riskState.killSwitchActive,
-        liveTradingEnabled: parseBoolean(Deno.env.get('LIVE_TRADING_ENABLED'), false),
-        mode: bot.mode,
-      };
-
-      // Check risk limits
-      const riskCheck = evaluateRisk(decision, riskInputs);
-
-      if (riskCheck.allowed) {
-        if (bot.mode === 'paper') {
-          await executePaperTrade(supabase, bot, decision);
-        } else {
-          // Live trading via exchange-kraken adapter
-          await executeLiveTrade(supabase, bot, decision);
-        }
-      } else {
-        await recordRiskRejection(supabase, bot, decision, riskCheck.flags);
-        await logEvent(
-          supabase,
-          bot.id,
-          bot.user_id,
-          'risk_alert',
-          `Order blocked by risk limits: ${riskCheck.flags.join(', ')}`,
-          'warn',
-          { decision, riskCheck }
-        );
-      }
+      await executeDecisionWithRisk(supabase, bot, decision, marketData, run, traceId, aiConfidenceOk);
     }
 
     // Update heartbeat
@@ -824,7 +902,8 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
         `Tick processed: ${marketData.symbol} @ ${marketData.price.toFixed(2)}`,
         'info',
         { marketData, signal, hasPosition: !!position, trace_id: traceId },
-        { capital: Number(bot.current_capital), pnl: Number(bot.total_pnl), price: marketData.price }
+        { capital: Number(bot.current_capital), pnl: Number(bot.total_pnl), price: marketData.price },
+        run?.id ?? null
       );
     }
   } catch (err: unknown) {
@@ -852,7 +931,9 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
       'error',
       `Tick error: ${error.message}`,
       'error',
-      { error: error.message, stack: error.stack }
+      { error: error.message, stack: error.stack },
+      undefined,
+      run?.id ?? null
     );
   }
 }
