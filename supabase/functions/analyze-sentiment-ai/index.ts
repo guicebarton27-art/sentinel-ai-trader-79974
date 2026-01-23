@@ -132,16 +132,16 @@ Be realistic about current crypto market conditions.`;
         const trend = trendMatch ? trendMatch[1].toLowerCase() as "bullish" | "bearish" | "neutral" : "neutral";
         const volumeLevel = volumeMatch ? volumeMatch[1].toLowerCase() : "medium";
         
-        // Convert volume level to number
+        // Convert volume level to fixed number (no random component)
         const volumeMap = { low: 500, medium: 1000, high: 2000 };
-        const volume = volumeMap[volumeLevel as keyof typeof volumeMap] + Math.floor(Math.random() * 500);
+        const volume = volumeMap[volumeLevel as keyof typeof volumeMap] || 1000;
 
         sentiments.push({
           source,
           score,
           volume,
           trend,
-          timestamp: Date.now() - (i * 300000), // Stagger timestamps
+          timestamp: Date.now(), // Real timestamp, no artificial stagger
           reasoning: analysis
         });
       } catch (apiError: any) {
