@@ -106,9 +106,9 @@ export const AutonomousAgentViz = () => {
         const predictionConfidence = predictions?.[0]?.confidence || 0.5;
         const eventCount = events?.length || 0;
 
-        // Calculate real metrics
-        const winRate = bot ? (bot.winning_trades / Math.max(1, bot.total_trades)) * 100 : 75;
-        const executionAccuracy = orderCount > 0 ? (filledOrders / orderCount) * 100 : 98;
+        // Calculate real metrics - no fallbacks, show actual 0 when no data
+        const winRate = bot && bot.total_trades > 0 ? (bot.winning_trades / bot.total_trades) * 100 : 0;
+        const executionAccuracy = orderCount > 0 ? (filledOrders / orderCount) * 100 : 0;
 
         // Build agents from real data
         // Build agents from real database data only - no hardcoded fallback values

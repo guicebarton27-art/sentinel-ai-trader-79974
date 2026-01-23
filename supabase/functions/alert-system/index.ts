@@ -94,10 +94,107 @@ serve(async (req) => {
 
           console.log('Alert created:', data.id);
 
-          // For critical/emergency alerts, we could send webhooks
+          // For critical/emergency alerts, dispatch to configured webhooks
           if (channels.includes('webhook') && (alert.severity === 'critical' || alert.severity === 'emergency')) {
-            // Webhook integration would go here
-            console.log('Would send webhook for critical alert:', alert.title);
+            const webhookUrl = Deno.env.get('ALERT_WEBHOOK_URL');
+            const slackWebhookUrl = Deno.env.get('SLACK_WEBHOOK_URL');
+            const discordWebhookUrl = Deno.env.get('DISCORD_WEBHOOK_URL');
+            
+            const webhookPayload = {
+              id: data.id,
+              type: alert.alert_type,
+              severity: alert.severity,
+              title: alert.title,
+              message: alert.message,
+              metadata: alert.metadata,
+              timestamp: new Date().toISOString(),
+              source: 'sentinel-trading-bot'
+            };
+
+            const webhookPromises: Promise<void>[] = [];
+
+            // Generic webhook
+            if (webhookUrl) {
+              webhookPromises.push(
+                fetch(webhookUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(webhookPayload)
+                }).then(res => {
+                  console.log(`Webhook dispatched: ${res.status}`);
+                }).catch(err => {
+                  console.error('Webhook dispatch failed:', err.message);
+                })
+              );
+            }
+
+            // Slack webhook (formatted for Slack)
+            if (slackWebhookUrl) {
+              const slackPayload = {
+                text: `🚨 *${alert.severity.toUpperCase()}*: ${alert.title}`,
+                attachments: [{
+                  color: alert.severity === 'emergency' ? '#FF0000' : '#FFA500',
+                  fields: [
+                    { title: 'Type', value: alert.alert_type, short: true },
+                    { title: 'Severity', value: alert.severity, short: true },
+                    { title: 'Message', value: alert.message, short: false }
+                  ],
+                  footer: 'Sentinel Trading Bot',
+                  ts: Math.floor(Date.now() / 1000)
+                }]
+              };
+
+              webhookPromises.push(
+                fetch(slackWebhookUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(slackPayload)
+                }).then(res => {
+                  console.log(`Slack webhook dispatched: ${res.status}`);
+                }).catch(err => {
+                  console.error('Slack webhook failed:', err.message);
+                })
+              );
+            }
+
+            // Discord webhook (formatted for Discord)
+            if (discordWebhookUrl) {
+              const discordPayload = {
+                embeds: [{
+                  title: `🚨 ${alert.severity.toUpperCase()}: ${alert.title}`,
+                  description: alert.message,
+                  color: alert.severity === 'emergency' ? 0xFF0000 : 0xFFA500,
+                  fields: [
+                    { name: 'Type', value: alert.alert_type, inline: true },
+                    { name: 'Severity', value: alert.severity, inline: true }
+                  ],
+                  footer: { text: 'Sentinel Trading Bot' },
+                  timestamp: new Date().toISOString()
+                }]
+              };
+
+              webhookPromises.push(
+                fetch(discordWebhookUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(discordPayload)
+                }).then(res => {
+                  console.log(`Discord webhook dispatched: ${res.status}`);
+                }).catch(err => {
+                  console.error('Discord webhook failed:', err.message);
+                })
+              );
+            }
+
+            // Fire webhooks in parallel (non-blocking)
+            if (webhookPromises.length > 0) {
+              Promise.allSettled(webhookPromises).then(results => {
+                const successful = results.filter(r => r.status === 'fulfilled').length;
+                console.log(`Webhooks completed: ${successful}/${results.length} successful`);
+              });
+            } else {
+              console.log('No webhook URLs configured for critical alert dispatch');
+            }
           }
 
           return new Response(

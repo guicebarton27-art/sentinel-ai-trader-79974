@@ -287,6 +287,171 @@ serve(async (req) => {
       }
     }
 
+    // Apply auto-fix if dry_run is false
+    const fixResults: { discrepancy: Discrepancy; action: string; success: boolean; error?: string }[] = [];
+    
+    if (!dry_run && discrepancies.length > 0) {
+      for (const discrepancy of discrepancies) {
+        try {
+          switch (discrepancy.type) {
+            case 'missing_on_exchange': {
+              // DB shows position but exchange doesn't have it
+              // Mark the DB position as closed (exchange is source of truth for live)
+              if (discrepancy.dbPosition) {
+                const { error } = await supabase
+                  .from('positions')
+                  .update({ 
+                    status: 'closed',
+                    closed_at: new Date().toISOString(),
+                    close_reason: 'reconciliation_sync'
+                  })
+                  .eq('id', discrepancy.dbPosition.id);
+                
+                fixResults.push({
+                  discrepancy,
+                  action: 'closed_orphan_db_position',
+                  success: !error,
+                  error: error?.message
+                });
+
+                // Log the fix event
+                if (bot_id) {
+                  await supabase.from('bot_events').insert({
+                    bot_id,
+                    user_id: userId,
+                    event_type: 'reconciliation',
+                    severity: 'info',
+                    message: `Auto-closed orphan position ${discrepancy.dbPosition.symbol}`,
+                    payload: { fix: 'closed_orphan_db_position', position_id: discrepancy.dbPosition.id }
+                  });
+                }
+              }
+              break;
+            }
+
+            case 'missing_in_db': {
+              // Exchange has position but DB doesn't - create tracking record
+              if (discrepancy.exchangePosition && bot_id) {
+                const { data: bot } = await supabase
+                  .from('bots')
+                  .select('symbol')
+                  .eq('id', bot_id)
+                  .single();
+
+                const { error } = await supabase
+                  .from('positions')
+                  .insert({
+                    user_id: userId,
+                    bot_id: bot_id,
+                    symbol: discrepancy.exchangePosition.symbol,
+                    side: discrepancy.exchangePosition.side,
+                    quantity: discrepancy.exchangePosition.quantity,
+                    entry_price: discrepancy.exchangePosition.avgPrice,
+                    status: 'open',
+                    opened_at: new Date().toISOString()
+                  });
+
+                fixResults.push({
+                  discrepancy,
+                  action: 'created_missing_db_position',
+                  success: !error,
+                  error: error?.message
+                });
+
+                if (!error) {
+                  await supabase.from('bot_events').insert({
+                    bot_id,
+                    user_id: userId,
+                    event_type: 'reconciliation',
+                    severity: 'info',
+                    message: `Created missing DB record for ${discrepancy.exchangePosition.symbol}`,
+                    payload: { fix: 'created_missing_db_position', symbol: discrepancy.exchangePosition.symbol }
+                  });
+                }
+              } else {
+                fixResults.push({
+                  discrepancy,
+                  action: 'skipped_no_bot_id',
+                  success: false,
+                  error: 'Cannot create position without bot_id'
+                });
+              }
+              break;
+            }
+
+            case 'quantity_mismatch': {
+              // Update DB to match exchange (exchange is source of truth for live)
+              if (discrepancy.dbPosition && discrepancy.exchangePosition) {
+                const { error } = await supabase
+                  .from('positions')
+                  .update({ 
+                    quantity: discrepancy.exchangePosition.quantity,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', discrepancy.dbPosition.id);
+
+                fixResults.push({
+                  discrepancy,
+                  action: 'updated_quantity',
+                  success: !error,
+                  error: error?.message
+                });
+
+                if (!error && bot_id) {
+                  await supabase.from('bot_events').insert({
+                    bot_id,
+                    user_id: userId,
+                    event_type: 'reconciliation',
+                    severity: 'info',
+                    message: `Updated quantity for ${discrepancy.dbPosition.symbol}: ${discrepancy.dbPosition.quantity} → ${discrepancy.exchangePosition.quantity}`,
+                    payload: { 
+                      fix: 'updated_quantity', 
+                      position_id: discrepancy.dbPosition.id,
+                      old_qty: discrepancy.dbPosition.quantity,
+                      new_qty: discrepancy.exchangePosition.quantity
+                    }
+                  });
+                }
+              }
+              break;
+            }
+
+            case 'side_mismatch': {
+              // This is a critical discrepancy - log but don't auto-fix
+              fixResults.push({
+                discrepancy,
+                action: 'manual_review_required',
+                success: false,
+                error: 'Side mismatch requires manual review - positions may need to be closed and re-opened'
+              });
+
+              if (bot_id) {
+                await supabase.from('bot_events').insert({
+                  bot_id,
+                  user_id: userId,
+                  event_type: 'reconciliation',
+                  severity: 'critical',
+                  message: `CRITICAL: Side mismatch for ${discrepancy.dbPosition?.symbol} - manual review required`,
+                  payload: { discrepancy, requires_manual_review: true }
+                });
+              }
+              break;
+            }
+          }
+        } catch (fixError) {
+          fixResults.push({
+            discrepancy,
+            action: 'fix_failed',
+            success: false,
+            error: (fixError as Error).message
+          });
+        }
+      }
+    }
+
+    const successfulFixes = fixResults.filter(r => r.success).length;
+    const failedFixes = fixResults.filter(r => !r.success).length;
+
     return new Response(JSON.stringify({
       status: 'completed',
       dry_run,
@@ -294,9 +459,15 @@ serve(async (req) => {
       exchange_positions: exchangePositions.length,
       discrepancies_count: discrepancies.length,
       discrepancies,
+      fixes_applied: !dry_run ? {
+        total: fixResults.length,
+        successful: successfulFixes,
+        failed: failedFixes,
+        results: fixResults
+      } : null,
       message: dry_run 
-        ? 'Dry run completed. No changes made. Review discrepancies and use dry_run=false to apply fixes (not yet implemented).'
-        : 'Reconciliation completed (auto-fix not yet implemented).',
+        ? 'Dry run completed. Review discrepancies and use dry_run=false to apply fixes.'
+        : `Reconciliation completed. ${successfulFixes} fixes applied, ${failedFixes} failed.`,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
