@@ -498,15 +498,18 @@ serve(async (req) => {
         .update({ status: 'executing', executed_at: new Date().toISOString() })
         .eq('id', opportunityId);
 
-      // Simulate execution (in paper mode)
+      // Paper execution - use conservative fixed estimates, no random values
+      const estimatedSlippagePct = 0.05; // 5 basis points
       const executionResult = {
         buyOrderId: crypto.randomUUID(),
         sellOrderId: crypto.randomUUID(),
-        buyFillPrice: opportunity.buy_price * (1 + (Math.random() - 0.5) * 0.001),
-        sellFillPrice: opportunity.sell_price * (1 + (Math.random() - 0.5) * 0.001),
-        slippage: Math.random() * 0.001,
-        actualProfit: opportunity.net_profit * (0.9 + Math.random() * 0.2),
-        executionTimeMs: 50 + Math.random() * 200,
+        buyFillPrice: opportunity.buy_price * (1 + estimatedSlippagePct / 100),
+        sellFillPrice: opportunity.sell_price * (1 - estimatedSlippagePct / 100),
+        slippage: estimatedSlippagePct,
+        actualProfit: opportunity.net_profit * 0.95, // Conservative 5% haircut
+        executionTimeMs: 120, // Fixed realistic estimate
+        mode: 'paper',
+        note: 'Paper execution - conservative estimates, no random slippage',
       };
 
       // Update with execution details
@@ -703,20 +706,22 @@ serve(async (req) => {
         throw new Error('Failed to store opportunity for execution');
       }
 
-      // Simulate execution with realistic slippage and timing
-      const slippageFactor = 0.9 + Math.random() * 0.2; // 90% to 110% of expected
-      const executionTimeMs = 50 + Math.random() * 200;
+      // Paper execution with fixed realistic estimates (no random values)
+      // In paper mode, we record the intended execution at theoretical prices
+      const estimatedSlippagePct = 0.05; // 5 basis points typical slippage
+      const estimatedExecutionTimeMs = 120; // Typical latency estimate
       
       const executionResult = {
         buyOrderId: crypto.randomUUID(),
         sellOrderId: crypto.randomUUID(),
-        buyFillPrice: opportunity.buyPrice * (1 + (Math.random() - 0.5) * 0.001),
-        sellFillPrice: opportunity.sellPrice * (1 + (Math.random() - 0.5) * 0.001),
-        slippage: (slippageFactor - 1) * 100,
-        actualProfit: opportunity.netProfit * slippageFactor,
-        executionTimeMs,
+        buyFillPrice: opportunity.buyPrice * (1 + estimatedSlippagePct / 100),
+        sellFillPrice: opportunity.sellPrice * (1 - estimatedSlippagePct / 100),
+        slippage: estimatedSlippagePct,
+        actualProfit: opportunity.netProfit * 0.95, // Conservative 5% haircut for realism
+        executionTimeMs: estimatedExecutionTimeMs,
         executedAt: new Date().toISOString(),
         mode: 'paper',
+        note: 'Paper execution - theoretical fill prices with conservative estimates',
       };
 
       // Update opportunity with execution details
@@ -794,7 +799,7 @@ serve(async (req) => {
             symbol: opportunity.symbol,
             type: opportunity.type,
             profit: executionResult.actualProfit,
-            executionTime: executionTimeMs,
+            executionTime: estimatedExecutionTimeMs,
           },
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

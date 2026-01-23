@@ -27,7 +27,7 @@ interface Agent {
   id: string;
   name: string;
   type: "strategy" | "risk" | "execution" | "sentiment" | "learning";
-  status: "active" | "thinking" | "idle" | "alert";
+  status: "active" | "thinking" | "idle" | "alert" | "offline";
   confidence: number;
   lastAction: string;
   metrics: {
@@ -111,31 +111,32 @@ export const AutonomousAgentViz = () => {
         const executionAccuracy = orderCount > 0 ? (filledOrders / orderCount) * 100 : 98;
 
         // Build agents from real data
+        // Build agents from real database data only - no hardcoded fallback values
         const realAgents: Agent[] = [
           {
             id: "strategy",
             name: "Strategy Agent",
             type: "strategy",
-            status: bot?.status === 'running' ? 'active' : 'idle',
-            confidence: Math.min(99, 70 + winRate * 0.3),
-            lastAction: bot ? `${bot.strategy_id} on ${bot.symbol}` : 'Awaiting configuration',
+            status: bot?.status === 'running' ? 'active' : bot ? 'idle' : 'offline',
+            confidence: bot ? Math.min(99, 70 + winRate * 0.3) : 0,
+            lastAction: bot ? `${bot.strategy_id} on ${bot.symbol}` : 'No bot configured',
             metrics: { 
               decisions: bot?.total_trades || 0, 
-              accuracy: winRate, 
-              latency: 12 
+              accuracy: bot ? winRate : 0, 
+              latency: bot?.last_tick_at ? Math.round((Date.now() - new Date(bot.last_tick_at).getTime()) / 1000) : 0
             }
           },
           {
             id: "risk",
             name: "Risk Guardian",
             type: "risk",
-            status: bot?.error_count && bot.error_count > 3 ? 'alert' : 'active',
-            confidence: bot ? Math.max(50, 100 - (bot.error_count || 0) * 5) : 94,
-            lastAction: bot?.last_error || 'All risk checks passed',
+            status: bot?.error_count && bot.error_count > 3 ? 'alert' : bot ? 'active' : 'offline',
+            confidence: bot ? Math.max(50, 100 - (bot.error_count || 0) * 5) : 0,
+            lastAction: bot?.last_error || (bot ? 'All risk checks passed' : 'No bot configured'),
             metrics: { 
               decisions: eventCount, 
-              accuracy: 96.1, 
-              latency: 3 
+              accuracy: eventCount > 0 ? Math.round((1 - (bot?.error_count || 0) / Math.max(1, eventCount)) * 100) : 0, 
+              latency: 0 // Real latency would come from event timestamps
             }
           },
           {
@@ -143,38 +144,38 @@ export const AutonomousAgentViz = () => {
             name: "Execution Engine",
             type: "execution",
             status: orderCount > 0 ? 'active' : 'idle',
-            confidence: Math.min(99, executionAccuracy),
-            lastAction: orders?.[0] ? `${orders[0].side} ${orders[0].quantity} @ ${orders[0].average_fill_price || orders[0].price}` : 'No recent orders',
+            confidence: orderCount > 0 ? Math.min(99, executionAccuracy) : 0,
+            lastAction: orders?.[0] ? `${orders[0].side} ${orders[0].quantity} @ ${orders[0].average_fill_price || orders[0].price}` : 'No orders',
             metrics: { 
               decisions: orderCount, 
-              accuracy: executionAccuracy, 
-              latency: 8 
+              accuracy: orderCount > 0 ? executionAccuracy : 0, 
+              latency: 0 // Would need order execution timestamps
             }
           },
           {
             id: "sentiment",
             name: "Sentiment Scanner",
             type: "sentiment",
-            status: sentiment && sentiment.length > 0 ? 'active' : 'thinking',
-            confidence: Math.min(99, 50 + Math.abs(sentimentScore) * 50),
-            lastAction: sentiment?.[0] ? `${sentiment[0].source}: ${sentiment[0].trend || 'analyzing'}` : 'Processing social signals',
+            status: sentiment && sentiment.length > 0 ? 'active' : 'offline',
+            confidence: sentiment?.length ? Math.min(99, 50 + Math.abs(sentimentScore) * 50) : 0,
+            lastAction: sentiment?.[0] ? `${sentiment[0].source}: ${sentiment[0].trend || 'analyzing'}` : 'No sentiment data',
             metrics: { 
               decisions: sentiment?.length || 0, 
-              accuracy: (sentiment?.[0]?.confidence || 0.68) * 100, 
-              latency: 45 
+              accuracy: sentiment?.[0]?.confidence ? sentiment[0].confidence * 100 : 0, 
+              latency: 0
             }
           },
           {
             id: "learning",
             name: "Meta-Learner",
             type: "learning",
-            status: predictions && predictions.length > 0 ? 'active' : 'thinking',
-            confidence: Math.min(99, predictionConfidence * 100),
-            lastAction: predictions?.[0] ? `${predictions[0].prediction_type} prediction` : 'Training models',
+            status: predictions && predictions.length > 0 ? 'active' : 'offline',
+            confidence: predictions?.length ? Math.min(99, predictionConfidence * 100) : 0,
+            lastAction: predictions?.[0] ? `${predictions[0].prediction_type} prediction` : 'No predictions',
             metrics: { 
               decisions: predictions?.length || 0, 
-              accuracy: predictionConfidence * 100, 
-              latency: 1200 
+              accuracy: predictions?.length ? predictionConfidence * 100 : 0, 
+              latency: 0
             }
           }
         ];
@@ -256,6 +257,7 @@ export const AutonomousAgentViz = () => {
       case "active": return "bg-success text-success-foreground";
       case "thinking": return "bg-primary text-primary-foreground animate-pulse";
       case "alert": return "bg-warning text-warning-foreground";
+      case "offline": return "bg-destructive/20 text-destructive";
       default: return "bg-muted text-muted-foreground";
     }
   };
