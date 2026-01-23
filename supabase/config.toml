@@ -55,7 +55,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.ai-strategy-engine]
-verify_jwt = true
+verify_jwt = false
 
 [functions.automl-agent]
 verify_jwt = true

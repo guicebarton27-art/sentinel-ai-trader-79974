@@ -30,34 +30,49 @@ interface StrategyDecision {
 }
 
 async function authenticateUser(req: Request, supabase: any) {
+  // Check for service role authentication (used by tick-bots and other backend functions)
   const serviceHeader = req.headers.get('x-service-role');
-  if (serviceHeader && serviceHeader === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (serviceHeader && serviceRoleKey && serviceHeader === serviceRoleKey) {
+    console.log('Authenticated via service role');
     return { user: { id: 'service-role' }, role: 'service' };
   }
 
+  // Check for API key in Authorization header (also valid for service auth)
   const authHeader = req.headers.get('Authorization');
-  if (!authHeader) {
-    throw new Error('Missing authorization header');
+  if (authHeader) {
+    const token = authHeader.replace('Bearer ', '');
+    // If the token matches the service role key, authenticate as service
+    if (token === serviceRoleKey) {
+      console.log('Authenticated via Authorization header with service role key');
+      return { user: { id: 'service-role' }, role: 'service' };
+    }
+    
+    // Otherwise, try JWT auth
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (!error && user) {
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single();
+
+      if (roleData && ['admin', 'trader'].includes(roleData.role)) {
+        return { user, role: roleData.role };
+      }
+      throw new Error('Insufficient permissions - requires admin or trader role');
+    }
   }
 
-  const token = authHeader.replace('Bearer ', '');
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  
-  if (error || !user) {
-    throw new Error('Invalid or expired token');
+  // Check for apikey header (Supabase standard header)
+  const apiKey = req.headers.get('apikey');
+  if (apiKey && apiKey === serviceRoleKey) {
+    console.log('Authenticated via apikey header with service role key');
+    return { user: { id: 'service-role' }, role: 'service' };
   }
 
-  const { data: roleData } = await supabase
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', user.id)
-    .single();
-
-  if (!roleData || !['admin', 'trader'].includes(roleData.role)) {
-    throw new Error('Insufficient permissions - requires admin or trader role');
-  }
-
-  return { user, role: roleData.role };
+  throw new Error('Missing authorization header');
 }
 
 serve(async (req) => {
