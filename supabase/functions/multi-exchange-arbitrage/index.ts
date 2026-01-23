@@ -135,60 +135,61 @@ async function fetchKrakenPrices(symbols: string[]): Promise<ExchangePrice[]> {
   return prices;
 }
 
-// Simulate prices from other exchanges based on Kraken + realistic spreads
-function simulateExchangePrices(krakenPrices: ExchangePrice[]): ExchangePrice[] {
-  const allPrices: ExchangePrice[] = [...krakenPrices];
-  const otherExchanges = ['binance', 'coinbase', 'bybit', 'okx'];
+// Only return real prices - no simulated data
+// Other exchanges will show as unavailable until API keys are configured
+function getAvailablePrices(krakenPrices: ExchangePrice[]): { 
+  prices: ExchangePrice[];
+  unavailableExchanges: string[];
+} {
+  // Only Kraken is currently connected with real data
+  // Other exchanges require API key configuration
+  const unavailableExchanges = ['binance', 'coinbase', 'bybit', 'okx'];
   
-  for (const krakenPrice of krakenPrices) {
-    for (const exchange of otherExchanges) {
-      // Add realistic price variations (-0.3% to +0.3%)
-      const variation = (Math.random() - 0.5) * 0.006;
-      const spreadMultiplier = exchange === 'coinbase' ? 1.002 : 1.0005;
-      
-      const midPrice = krakenPrice.last * (1 + variation);
-      const spread = midPrice * (spreadMultiplier - 1);
-      
-      allPrices.push({
-        exchange,
-        symbol: krakenPrice.symbol,
-        bid: midPrice - spread / 2,
-        ask: midPrice + spread / 2,
-        last: midPrice,
-        volume24h: krakenPrice.volume24h * (0.5 + Math.random()),
-        timestamp: Date.now(),
-      });
-    }
-  }
-  
-  return allPrices;
+  return {
+    prices: krakenPrices, // Only return real Kraken prices
+    unavailableExchanges,
+  };
 }
 
-// Generate simulated funding rates
-function generateFundingRates(symbols: string[]): FundingRate[] {
-  const rates: FundingRate[] = [];
-  const perpetualExchanges = ['binance', 'bybit', 'okx'];
-  
-  for (const symbol of symbols) {
-    for (const exchange of perpetualExchanges) {
-      // Funding rates typically range from -0.1% to +0.1% per 8 hours
-      const rate = (Math.random() - 0.45) * 0.002; // Slight positive bias
-      const nextFunding = Date.now() + Math.random() * 8 * 60 * 60 * 1000;
-      
-      rates.push({
-        exchange,
-        symbol,
-        rate,
-        nextFundingTime: nextFunding,
-        predictedRate: rate * (0.8 + Math.random() * 0.4),
-        openInterest: Math.random() * 1000000000,
-        markPrice: 0, // Will be set from prices
-        indexPrice: 0,
-      });
+// Fetch real funding rates from database (previously stored from exchanges)
+// Returns empty array if no real data available - no fake data generation
+async function fetchFundingRates(supabase: any, symbols: string[]): Promise<FundingRate[]> {
+  try {
+    const { data, error } = await supabase
+      .from('funding_rates')
+      .select('*')
+      .in('symbol', symbols)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    
+    if (error) {
+      console.error('Error fetching funding rates:', error);
+      return [];
     }
+    
+    // Deduplicate to get latest rate per exchange/symbol
+    const latestRates: Record<string, FundingRate> = {};
+    for (const rate of (data || [])) {
+      const key = `${rate.exchange}_${rate.symbol}`;
+      if (!latestRates[key]) {
+        latestRates[key] = {
+          exchange: rate.exchange,
+          symbol: rate.symbol,
+          rate: rate.funding_rate,
+          nextFundingTime: rate.next_funding_time ? new Date(rate.next_funding_time).getTime() : 0,
+          predictedRate: rate.predicted_rate,
+          openInterest: rate.open_interest,
+          markPrice: rate.mark_price,
+          indexPrice: rate.index_price,
+        };
+      }
+    }
+    
+    return Object.values(latestRates);
+  } catch (error) {
+    console.error('Error in fetchFundingRates:', error);
+    return [];
   }
-  
-  return rates;
 }
 
 // Find cross-exchange arbitrage opportunities
@@ -415,26 +416,37 @@ serve(async (req) => {
     const action = body.action || 'scan';
 
     if (action === 'scan') {
-      // Fetch real Kraken prices
+      // Fetch real Kraken prices - the only connected exchange
       const krakenPrices = await fetchKrakenPrices(SYMBOLS);
       
-      // Simulate other exchange prices
-      const allPrices = simulateExchangePrices(krakenPrices);
+      // Get available prices (only real data, no simulations)
+      const { prices: allPrices, unavailableExchanges } = getAvailablePrices(krakenPrices);
       
-      // Generate funding rates
-      const fundingRates = generateFundingRates(SYMBOLS);
+      // Fetch real funding rates from database (no fake generation)
+      const fundingRates = await fetchFundingRates(supabase, SYMBOLS);
       
-      // Find opportunities
-      const crossExchangeOpps = findCrossExchangeArbitrage(allPrices);
-      const fundingRateOpps = findFundingRateArbitrage(allPrices, fundingRates);
+      // Find opportunities - only with real data
+      // Cross-exchange arbitrage requires at least 2 connected exchanges
+      // Currently only Kraken is connected, so no cross-exchange opportunities available
+      const crossExchangeOpps: ArbitrageOpportunity[] = [];
       
-      // Combine and sort all opportunities
+      // Funding rate arbitrage requires perpetual exchange connections
+      // Only show if we have real funding rate data
+      const fundingRateOpps = fundingRates.length > 0 
+        ? findFundingRateArbitrage(allPrices, fundingRates)
+        : [];
+      
+      // Combine opportunities (only from real data sources)
       const allOpportunities = [...crossExchangeOpps, ...fundingRateOpps]
         .sort((a, b) => b.netProfit - a.netProfit);
       
-      // Store in database
-      await storeOpportunities(supabase, user.id, allOpportunities);
-      await storeFundingRates(supabase, fundingRates);
+      // Store in database if any exist
+      if (allOpportunities.length > 0) {
+        await storeOpportunities(supabase, user.id, allOpportunities);
+      }
+      if (fundingRates.length > 0) {
+        await storeFundingRates(supabase, fundingRates);
+      }
       
       return new Response(
         JSON.stringify({
@@ -442,6 +454,8 @@ serve(async (req) => {
           opportunities: allOpportunities.slice(0, 20),
           fundingRates: fundingRates,
           exchangePrices: allPrices,
+          connectedExchanges: ['kraken'],
+          unavailableExchanges,
           summary: {
             totalOpportunities: allOpportunities.length,
             crossExchange: crossExchangeOpps.length,
