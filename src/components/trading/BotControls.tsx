@@ -352,10 +352,19 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="paper">Paper Trading</SelectItem>
-                    <SelectItem value="live">Live Trading</SelectItem>
+                    <SelectItem value="paper">Paper Trading (Simulated)</SelectItem>
+                    <SelectItem value="live">Live Trading (Real Money)</SelectItem>
                   </SelectContent>
                 </Select>
+                {newBotMode === 'live' && (
+                  <div className="flex items-start gap-2 p-2 rounded bg-destructive/10 border border-destructive/20 text-sm">
+                    <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                    <div className="text-destructive">
+                      <strong>Warning:</strong> Live mode executes real trades with actual funds via Kraken. 
+                      Ensure you have configured your API keys and understand the risks.
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Starting Capital</Label>

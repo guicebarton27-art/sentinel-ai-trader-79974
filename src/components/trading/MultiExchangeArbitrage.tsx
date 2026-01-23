@@ -443,8 +443,8 @@ export const MultiExchangeArbitrage = () => {
 
         <div className="pt-3 border-t border-border/50 text-xs text-muted-foreground flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3" />
-            Paper trading mode • Prices simulated for non-Kraken exchanges
+            <Activity className="h-3 w-3 text-success" />
+            Connected: Kraken (real-time) • Other exchanges require API key setup
           </div>
           <div>Updates every 30s</div>
         </div>

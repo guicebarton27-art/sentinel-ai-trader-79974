@@ -85,7 +85,8 @@ function getServiceClient(): SupabaseClient {
 }
 
 // Fetch real market data from Kraken public API
-async function fetchMarketData(symbol: string): Promise<MarketData> {
+// Returns null if API fails - callers must handle missing data
+async function fetchMarketData(symbol: string): Promise<MarketData | null> {
   try {
     // Convert symbol format (BTC/USD -> XXBTZUSD)
     const krakenSymbol = symbol.replace('BTC', 'XBT').replace('/', '');
@@ -115,22 +116,12 @@ async function fetchMarketData(symbol: string): Promise<MarketData> {
   } catch (error) {
     logWarn({
       component: 'tick-bots',
-      message: 'Error fetching market data, falling back to simulated prices',
+      message: 'Failed to fetch market data from Kraken API - skipping tick',
       context: { error: (error as Error).message, symbol },
     });
-    // Return simulated data as fallback
-    const symbolSeed = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const basePrice = 95000 + (symbolSeed % 1000);
-    const change = ((symbolSeed % 100) - 50) / 10;
-    const volume = 50000 + (symbolSeed % 5000);
-    return {
-      symbol,
-      price: basePrice,
-      bid: basePrice - 10,
-      ask: basePrice + 10,
-      volume_24h: volume,
-      change_24h: change,
-    };
+    // Return null to skip this tick instead of using fake data
+    // The bot should wait for real market data rather than trade on fake prices
+    return null;
   }
 }
 
@@ -709,8 +700,16 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
   try {
     const traceId = crypto.randomUUID();
 
-    // Fetch current market data
+    // Fetch current market data - skip tick if unavailable (no fake data)
     const marketData = await fetchMarketData(bot.symbol);
+    if (!marketData) {
+      logWarn({
+        component: 'tick-bots',
+        message: 'Skipping tick - no market data available from Kraken API',
+        context: { bot_id: bot.id, symbol: bot.symbol, trace_id: traceId },
+      });
+      return; // Skip this tick entirely - don't trade on fake data
+    }
     const marketTick: MarketTick = marketData;
 
     // Get open position if any
