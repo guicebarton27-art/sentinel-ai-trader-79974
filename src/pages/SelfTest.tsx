@@ -586,9 +586,9 @@ const SelfTest = () => {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             {failCount === 0 ? (
-                              <CheckCircle2 className="h-4 w-4 text-green-500" />
+                              <CheckCircle2 className="h-4 w-4 text-success" />
                             ) : (
-                              <XCircle className="h-4 w-4 text-red-500" />
+                              <XCircle className="h-4 w-4 text-destructive" />
                             )}
                             <div>
                               <div className="text-sm font-medium">
@@ -604,8 +604,8 @@ const SelfTest = () => {
                               <div
                                 key={i}
                                 className={`w-2 h-2 rounded-full ${
-                                  r.status === 'pass' ? 'bg-green-500' :
-                                  r.status === 'fail' ? 'bg-red-500' :
+                                  r.status === 'pass' ? 'bg-success' :
+                                  r.status === 'fail' ? 'bg-destructive' :
                                   'bg-muted-foreground'
                                 }`}
                                 title={r.name}
