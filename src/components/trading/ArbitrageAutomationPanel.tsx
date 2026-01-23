@@ -31,11 +31,11 @@ import { useState } from "react";
 import { useArbitrageAutomation } from "@/hooks/useArbitrageAutomation";
 
 const EXCHANGES = [
-  { id: 'kraken', name: 'Kraken', color: 'text-purple-400' },
-  { id: 'binance', name: 'Binance', color: 'text-yellow-400' },
-  { id: 'coinbase', name: 'Coinbase', color: 'text-blue-400' },
-  { id: 'bybit', name: 'Bybit', color: 'text-orange-400' },
-  { id: 'okx', name: 'OKX', color: 'text-green-400' },
+  { id: 'kraken', name: 'Kraken', color: 'text-accent' },
+  { id: 'binance', name: 'Binance', color: 'text-warning' },
+  { id: 'coinbase', name: 'Coinbase', color: 'text-primary' },
+  { id: 'bybit', name: 'Bybit', color: 'text-chart-4' },
+  { id: 'okx', name: 'OKX', color: 'text-success' },
 ];
 
 const SYMBOLS = ['BTC/USD', 'ETH/USD', 'XRP/USD', 'SOL/USD'];
@@ -67,7 +67,7 @@ export const ArbitrageAutomationPanel = () => {
             <Badge 
               variant="outline" 
               className={stats.isRunning 
-                ? "border-green-500/30 text-green-400 animate-pulse" 
+                ? "border-success/30 text-success animate-pulse" 
                 : "border-muted-foreground/30 text-muted-foreground"
               }
             >
@@ -120,7 +120,7 @@ export const ArbitrageAutomationPanel = () => {
 
           <div className="flex items-center gap-6">
             <div className="text-center">
-              <div className="text-2xl font-bold text-green-400">
+              <div className="text-2xl font-bold text-success">
                 ${stats.totalProfit.toFixed(2)}
               </div>
               <div className="text-xs text-muted-foreground">Total Profit</div>
@@ -142,26 +142,26 @@ export const ArbitrageAutomationPanel = () => {
 
         {/* Quick Stats */}
         <div className="grid grid-cols-4 gap-3">
-          <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+          <div className="p-3 rounded-lg bg-success/10 border border-success/20">
             <div className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-green-400" />
+              <CheckCircle className="h-4 w-4 text-success" />
               <span className="text-sm text-muted-foreground">Successful</span>
             </div>
-            <div className="text-lg font-bold text-green-400">{stats.successfulExecutions}</div>
+            <div className="text-lg font-bold text-success">{stats.successfulExecutions}</div>
           </div>
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+          <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
             <div className="flex items-center gap-2">
-              <XCircle className="h-4 w-4 text-red-400" />
+              <XCircle className="h-4 w-4 text-destructive" />
               <span className="text-sm text-muted-foreground">Failed</span>
             </div>
-            <div className="text-lg font-bold text-red-400">{stats.failedExecutions}</div>
+            <div className="text-lg font-bold text-destructive">{stats.failedExecutions}</div>
           </div>
-          <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+          <div className="p-3 rounded-lg bg-warning/10 border border-warning/20">
             <div className="flex items-center gap-2">
-              <Shield className="h-4 w-4 text-yellow-400" />
+              <Shield className="h-4 w-4 text-warning" />
               <span className="text-sm text-muted-foreground">Hedges</span>
             </div>
-            <div className="text-lg font-bold text-yellow-400">{stats.hedgesCreated}</div>
+            <div className="text-lg font-bold text-warning">{stats.hedgesCreated}</div>
           </div>
           <div className="p-3 rounded-lg bg-primary/10 border border-primary/20">
             <div className="flex items-center gap-2">

@@ -68,8 +68,8 @@ export const SentimentAnalysis = () => {
   };
 
   const getSentimentColor = (score: number) => {
-    if (score > 0.3) return "text-emerald-500";
-    if (score < -0.3) return "text-red-500";
+    if (score > 0.3) return "text-success";
+    if (score < -0.3) return "text-destructive";
     return "text-muted-foreground";
   };
 

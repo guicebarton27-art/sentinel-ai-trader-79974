@@ -114,21 +114,21 @@ export const ExecutionRouter = ({ symbol }: ExecutionRouterProps) => {
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="flex items-start gap-2">
-                <ArrowUpRight className="h-4 w-4 text-yellow-500 mt-0.5" />
+                <ArrowUpRight className="h-4 w-4 text-warning mt-0.5" />
                 <div>
                   <p className="text-muted-foreground">Price Impact</p>
                   <p className="font-semibold">{routing.price_impact?.toFixed(3)}%</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <TrendingDown className="h-4 w-4 text-red-500 mt-0.5" />
+                <TrendingDown className="h-4 w-4 text-destructive mt-0.5" />
                 <div>
                   <p className="text-muted-foreground">Slippage</p>
                   <p className="font-semibold">{routing.expected_slippage?.toFixed(3)}%</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <Clock className="h-4 w-4 text-blue-500 mt-0.5" />
+                <Clock className="h-4 w-4 text-primary mt-0.5" />
                 <div>
                   <p className="text-muted-foreground">Fill Time</p>
                   <p className="font-semibold">{routing.expected_fill_time?.toFixed(1)}m</p>
