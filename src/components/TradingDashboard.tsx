@@ -22,35 +22,47 @@ import {
   AlertOctagon,
   TestTube
 } from 'lucide-react';
-import { CriticalPanel } from './trading/CriticalPanel';
-import { CompactExecutionPanel } from './trading/CompactExecutionPanel';
-import { CollapsibleRiskPanel } from './trading/CollapsibleRiskPanel';
-import { CompactStrategyPanel } from './trading/CompactStrategyPanel';
-import { PortfolioOverview } from './trading/PortfolioOverview';
-import { MarketData } from './trading/MarketData';
-import { BotControls } from './trading/BotControls';
-import { TradingChart } from './trading/TradingChart';
-import { StrategyEngine } from './trading/StrategyEngine';
-import { RiskEngine } from './trading/RiskEngine';
-import { ExecutionRouter } from './trading/ExecutionRouter';
-import { ArbitrageDetector } from './trading/ArbitrageDetector';
-import { MultiExchangeArbitrage } from './trading/MultiExchangeArbitrage';
-import { ArbitrageAutomationPanel } from './trading/ArbitrageAutomationPanel';
-import { StrategyRecommendation } from './trading/StrategyRecommendation';
-import { ApiKeyManager } from './trading/ApiKeyManager';
-import { BacktestPanel } from './trading/BacktestPanel';
-import { BacktestResults } from './trading/BacktestResults';
-import { MLSentimentPanel } from './trading/MLSentimentPanel';
-import { MLPricePrediction } from './trading/MLPricePrediction';
-import { MLRiskEngine } from './trading/MLRiskEngine';
-import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
-import { AutoMLAgent } from './trading/AutoMLAgent';
-import { SystemStatusWidget } from './trading/SystemStatusWidget';
-import { LiveTradesFeed } from './trading/LiveTradesFeed';
-import { AICommandCenter } from './trading/AICommandCenter';
-import { AutonomousAgentViz } from './trading/AutonomousAgentViz';
-import { NeuralDecisionViz } from './trading/NeuralDecisionViz';
-import { LiveCandleChart } from './trading/LiveCandleChart';
+// Trading Components - Grouped by Domain
+import {
+  // ML & Intelligence
+  MLSentimentPanel,
+  MLPricePrediction,
+  StrategyRecommendation,
+  AutoMLAgent,
+  NeuralDecisionViz,
+  AutonomousAgentViz,
+  AICommandCenter,
+  // Risk & Safety
+  RiskEngine,
+  MLRiskEngine,
+  CriticalPanel,
+  CollapsibleRiskPanel,
+  // Execution
+  ExecutionRouter,
+  CompactExecutionPanel,
+  BotControls,
+  LiveTradesFeed,
+  // Market Data
+  TradingChart,
+  LiveCandleChart,
+  MarketData,
+  // Arbitrage
+  ArbitrageDetector,
+  ArbitrageAutomationPanel,
+  MultiExchangeArbitrage,
+  // Strategy
+  StrategyEngine,
+  CompactStrategyPanel,
+  // Portfolio
+  PortfolioOverview,
+  PortfolioOptimizer,
+  // Backtesting
+  BacktestPanel,
+  BacktestResults,
+  // System
+  SystemStatusWidget,
+  ApiKeyManager,
+} from './trading';
 import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
