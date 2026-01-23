@@ -57,15 +57,15 @@ export const MLSentimentPanel = () => {
   }, []);
 
   const getSentimentIcon = (score: number) => {
-    if (score > 0.2) return <TrendingUp className="h-4 w-4 text-green-500" />;
-    if (score < -0.2) return <TrendingDown className="h-4 w-4 text-red-500" />;
-    return <Minus className="h-4 w-4 text-yellow-500" />;
+    if (score > 0.2) return <TrendingUp className="h-4 w-4 text-success" />;
+    if (score < -0.2) return <TrendingDown className="h-4 w-4 text-destructive" />;
+    return <Minus className="h-4 w-4 text-warning" />;
   };
 
   const getSentimentColor = (score: number) => {
-    if (score > 0.2) return "bg-green-500/10 text-green-600 border-green-500/20";
-    if (score < -0.2) return "bg-red-500/10 text-red-600 border-red-500/20";
-    return "bg-yellow-500/10 text-yellow-600 border-yellow-500/20";
+    if (score > 0.2) return "bg-success/10 text-success border-success/20";
+    if (score < -0.2) return "bg-destructive/10 text-destructive border-destructive/20";
+    return "bg-warning/10 text-warning border-warning/20";
   };
 
   return (
@@ -112,7 +112,7 @@ export const MLSentimentPanel = () => {
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
                   <div
                     className={`h-full transition-all ${
-                      aggregated.sentiment_score > 0 ? 'bg-green-500' : 'bg-red-500'
+                      aggregated.sentiment_score > 0 ? 'bg-success' : 'bg-destructive'
                     }`}
                     style={{
                       width: `${Math.abs(aggregated.sentiment_score) * 100}%`,

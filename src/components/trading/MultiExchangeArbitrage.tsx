@@ -226,7 +226,7 @@ export const MultiExchangeArbitrage = () => {
             </div>
             <div className="p-3 rounded-lg bg-secondary/50 border border-border/50">
               <div className="text-xs text-muted-foreground">Best Profit</div>
-              <div className="text-lg font-bold text-green-400">${summary.bestProfit.toFixed(2)}</div>
+              <div className="text-lg font-bold text-success">${summary.bestProfit.toFixed(2)}</div>
             </div>
             <div className="p-3 rounded-lg bg-secondary/50 border border-border/50">
               <div className="text-xs text-muted-foreground">Total Potential</div>
@@ -268,13 +268,13 @@ export const MultiExchangeArbitrage = () => {
                     <div className="flex items-center gap-2">
                       <Badge 
                         variant="outline" 
-                        className={`text-xs ${opp.type === 'funding_rate' ? 'border-yellow-500/30 text-yellow-400' : 'border-execution/30 text-execution'}`}
+                        className={`text-xs ${opp.type === 'funding_rate' ? 'border-warning/30 text-warning' : 'border-execution/30 text-execution'}`}
                       >
                         {opp.type === 'funding_rate' ? 'Funding' : 'Cross-X'}
                       </Badge>
                       <span className="font-mono font-medium">{opp.symbol}</span>
                     </div>
-                    <Badge variant="default" className="gap-1 bg-green-500/20 text-green-400 border-green-500/30">
+                    <Badge variant="default" className="gap-1 bg-success/20 text-success border-success/30">
                       <TrendingUp className="h-3 w-3" />
                       +${opp.netProfit.toFixed(2)}
                     </Badge>
@@ -303,7 +303,7 @@ export const MultiExchangeArbitrage = () => {
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="h-7 text-xs border-yellow-500/30 hover:bg-yellow-500/10 text-yellow-400"
+                          className="h-7 text-xs border-warning/30 hover:bg-warning/10 text-warning"
                           onClick={() => createHedge(opp)}
                         >
                           <Shield className="h-3 w-3 mr-1" />
@@ -328,7 +328,7 @@ export const MultiExchangeArbitrage = () => {
 
                   {opp.hedgeRecommendation && (
                     <div className="pt-2 border-t border-border/30 text-xs">
-                      <div className="flex items-center gap-2 text-yellow-400">
+                      <div className="flex items-center gap-2 text-warning">
                         <Shield className="h-3 w-3" />
                         <span>
                           Delta-Neutral: Long {opp.hedgeRecommendation.longExchange}, 

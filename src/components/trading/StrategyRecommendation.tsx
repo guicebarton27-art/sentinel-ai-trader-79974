@@ -42,9 +42,9 @@ export const StrategyRecommendation = ({ symbol }: StrategyRecommendationProps) 
 
   const getActionColor = (action: string) => {
     switch (action) {
-      case 'buy': return 'text-green-500';
-      case 'sell': return 'text-red-500';
-      default: return 'text-gray-500';
+      case 'buy': return 'text-success';
+      case 'sell': return 'text-destructive';
+      default: return 'text-muted-foreground';
     }
   };
 
@@ -96,7 +96,7 @@ export const StrategyRecommendation = ({ symbol }: StrategyRecommendationProps) 
               </div>
               <div>
                 <p className="text-muted-foreground">Stop Loss</p>
-                <p className="font-semibold text-red-500">${recommendation.stop_loss?.toFixed(2)}</p>
+                <p className="font-semibold text-destructive">${recommendation.stop_loss?.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Size</p>
@@ -107,7 +107,7 @@ export const StrategyRecommendation = ({ symbol }: StrategyRecommendationProps) 
 
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="h-4 w-4 text-green-500" />
+              <TrendingUp className="h-4 w-4 text-success" />
               <p className="text-sm font-semibold">Key Signals</p>
             </div>
             <p className="text-sm text-muted-foreground whitespace-pre-line">
@@ -117,7 +117,7 @@ export const StrategyRecommendation = ({ symbol }: StrategyRecommendationProps) 
 
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+              <AlertTriangle className="h-4 w-4 text-warning" />
               <p className="text-sm font-semibold">Risk Factors</p>
             </div>
             <p className="text-sm text-muted-foreground whitespace-pre-line">

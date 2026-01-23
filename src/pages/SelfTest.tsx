@@ -458,11 +458,11 @@ const SelfTest = () => {
   const getStatusIcon = (status: TestResult['status']) => {
     switch (status) {
       case 'pass':
-        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+        return <CheckCircle2 className="h-5 w-5 text-success" />;
       case 'fail':
-        return <XCircle className="h-5 w-5 text-red-500" />;
+        return <XCircle className="h-5 w-5 text-destructive" />;
       case 'running':
-        return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />;
+        return <Loader2 className="h-5 w-5 text-primary animate-spin" />;
       default:
         return <Clock className="h-5 w-5 text-muted-foreground" />;
     }
@@ -471,11 +471,11 @@ const SelfTest = () => {
   const getStatusBadge = (status: TestResult['status']) => {
     switch (status) {
       case 'pass':
-        return <Badge className="bg-green-500/20 text-green-500 border-green-500/30">PASS</Badge>;
+        return <Badge className="bg-success/20 text-success border-success/30">PASS</Badge>;
       case 'fail':
         return <Badge variant="destructive">FAIL</Badge>;
       case 'running':
-        return <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">RUNNING</Badge>;
+        return <Badge className="bg-primary/20 text-primary border-primary/30">RUNNING</Badge>;
       default:
         return <Badge variant="secondary">PENDING</Badge>;
     }
@@ -533,9 +533,9 @@ const SelfTest = () => {
               <div 
                 key={test.name}
                 className={`p-4 rounded-lg border transition-colors ${
-                  test.status === 'pass' ? 'bg-green-500/5 border-green-500/20' :
-                  test.status === 'fail' ? 'bg-red-500/5 border-red-500/20' :
-                  test.status === 'running' ? 'bg-blue-500/5 border-blue-500/20' :
+                  test.status === 'pass' ? 'bg-success/5 border-success/20' :
+                  test.status === 'fail' ? 'bg-destructive/5 border-destructive/20' :
+                  test.status === 'running' ? 'bg-primary/5 border-primary/20' :
                   'bg-muted/30 border-border'
                 }`}
               >

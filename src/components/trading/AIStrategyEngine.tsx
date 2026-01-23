@@ -184,24 +184,24 @@ export const AIStrategyEngine = () => {
 
   const getActionIcon = (action: string) => {
     switch (action) {
-      case 'BUY': return <TrendingUp className="h-6 w-6 text-green-500" />;
-      case 'SELL': return <TrendingDown className="h-6 w-6 text-red-500" />;
-      default: return <Pause className="h-6 w-6 text-yellow-500" />;
+      case 'BUY': return <TrendingUp className="h-6 w-6 text-success" />;
+      case 'SELL': return <TrendingDown className="h-6 w-6 text-destructive" />;
+      default: return <Pause className="h-6 w-6 text-warning" />;
     }
   };
 
   const getActionColor = (action: string) => {
     switch (action) {
-      case 'BUY': return 'bg-green-500/20 text-green-400 border-green-500/50';
-      case 'SELL': return 'bg-red-500/20 text-red-400 border-red-500/50';
-      default: return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50';
+      case 'BUY': return 'bg-success/20 text-success border-success/50';
+      case 'SELL': return 'bg-destructive/20 text-destructive border-destructive/50';
+      default: return 'bg-warning/20 text-warning border-warning/50';
     }
   };
 
   const getRiskColor = (score: number) => {
-    if (score <= 3) return 'text-green-400';
-    if (score <= 6) return 'text-yellow-400';
-    return 'text-red-400';
+    if (score <= 3) return 'text-success';
+    if (score <= 6) return 'text-warning';
+    return 'text-destructive';
   };
 
   const getTimeHorizonLabel = (horizon: string) => {
@@ -351,22 +351,22 @@ export const AIStrategyEngine = () => {
               {/* Trade Parameters Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
                 <div className="text-center p-3 rounded-lg bg-muted/30">
-                  <Target className="h-5 w-5 mx-auto mb-1 text-blue-400" />
+                  <Target className="h-5 w-5 mx-auto mb-1 text-primary" />
                   <p className="text-xs text-muted-foreground">Position Size</p>
                   <p className="text-lg font-bold">{decision.positionSize}%</p>
                 </div>
                 <div className="text-center p-3 rounded-lg bg-muted/30">
-                  <Shield className="h-5 w-5 mx-auto mb-1 text-red-400" />
+                  <Shield className="h-5 w-5 mx-auto mb-1 text-destructive" />
                   <p className="text-xs text-muted-foreground">Stop Loss</p>
                   <p className="text-lg font-bold">-{decision.stopLoss}%</p>
                 </div>
                 <div className="text-center p-3 rounded-lg bg-muted/30">
-                  <DollarSign className="h-5 w-5 mx-auto mb-1 text-green-400" />
+                  <DollarSign className="h-5 w-5 mx-auto mb-1 text-success" />
                   <p className="text-xs text-muted-foreground">Take Profit</p>
                   <p className="text-lg font-bold">+{decision.takeProfit}%</p>
                 </div>
                 <div className="text-center p-3 rounded-lg bg-muted/30">
-                  <Clock className="h-5 w-5 mx-auto mb-1 text-purple-400" />
+                  <Clock className="h-5 w-5 mx-auto mb-1 text-accent" />
                   <p className="text-xs text-muted-foreground">Time Horizon</p>
                   <p className="text-lg font-bold capitalize">{decision.timeHorizon}</p>
                 </div>
@@ -390,7 +390,7 @@ export const AIStrategyEngine = () => {
                 </div>
                 <Progress 
                   value={decision.riskScore * 10} 
-                  className={`h-3 ${decision.riskScore <= 3 ? '[&>div]:bg-green-500' : decision.riskScore <= 6 ? '[&>div]:bg-yellow-500' : '[&>div]:bg-red-500'}`}
+                  className={`h-3 ${decision.riskScore <= 3 ? '[&>div]:bg-success' : decision.riskScore <= 6 ? '[&>div]:bg-warning' : '[&>div]:bg-destructive'}`}
                 />
                 <p className="text-xs text-muted-foreground">
                   {decision.riskScore <= 3 ? 'Low risk trade' : decision.riskScore <= 6 ? 'Moderate risk' : 'High risk - caution advised'}
@@ -402,12 +402,12 @@ export const AIStrategyEngine = () => {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-muted-foreground">Expected Return</span>
                   {decision.expectedReturn >= 0 ? (
-                    <CheckCircle className="h-5 w-5 text-green-400" />
+                    <CheckCircle className="h-5 w-5 text-success" />
                   ) : (
-                    <AlertTriangle className="h-5 w-5 text-yellow-400" />
+                    <AlertTriangle className="h-5 w-5 text-warning" />
                   )}
                 </div>
-                <p className={`text-3xl font-bold ${decision.expectedReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                <p className={`text-3xl font-bold ${decision.expectedReturn >= 0 ? 'text-success' : 'text-destructive'}`}>
                   {decision.expectedReturn >= 0 ? '+' : ''}{decision.expectedReturn}%
                 </p>
               </div>
