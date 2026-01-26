@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { fetchWithResilience } from "../_shared/ai.ts";
+import { fetchWithModelFallback } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -178,75 +178,75 @@ Based on this analysis, provide your trading decision.`;
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
-    const aiResponse = await fetchWithResilience('ai-strategy-engine', 'https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'make_trading_decision',
-              description: 'Generate a structured trading decision based on market analysis',
-              parameters: {
-                type: 'object',
-                properties: {
-                  action: {
-                    type: 'string',
-                    enum: ['BUY', 'SELL', 'HOLD'],
-                    description: 'The recommended trading action'
-                  },
-                  confidence: {
-                    type: 'number',
-                    description: 'Confidence level 0-100'
-                  },
-                  reasoning: {
-                    type: 'string',
-                    description: 'Detailed explanation of the decision'
-                  },
-                  positionSize: {
-                    type: 'number',
-                    description: 'Recommended position size as percentage of portfolio (0-10)'
-                  },
-                  stopLoss: {
-                    type: 'number',
-                    description: 'Stop loss percentage below entry (1-20)'
-                  },
-                  takeProfit: {
-                    type: 'number',
-                    description: 'Take profit percentage above entry (1-50)'
-                  },
-                  riskScore: {
-                    type: 'number',
-                    description: 'Risk score 1-10 where 10 is highest risk'
-                  },
-                  expectedReturn: {
-                    type: 'number',
-                    description: 'Expected return percentage'
-                  },
-                  timeHorizon: {
-                    type: 'string',
-                    enum: ['scalp', 'intraday', 'swing', 'position'],
-                    description: 'Recommended time horizon for the trade'
-                  }
-                },
-                required: ['action', 'confidence', 'reasoning', 'positionSize', 'stopLoss', 'takeProfit', 'riskScore', 'expectedReturn', 'timeHorizon'],
-                additionalProperties: false
+    const tools = [
+      {
+        type: 'function',
+        function: {
+          name: 'make_trading_decision',
+          description: 'Generate a structured trading decision based on market analysis',
+          parameters: {
+            type: 'object',
+            properties: {
+              action: {
+                type: 'string',
+                enum: ['BUY', 'SELL', 'HOLD'],
+                description: 'The recommended trading action'
+              },
+              confidence: {
+                type: 'number',
+                description: 'Confidence level 0-100'
+              },
+              reasoning: {
+                type: 'string',
+                description: 'Detailed explanation of the decision'
+              },
+              positionSize: {
+                type: 'number',
+                description: 'Recommended position size as percentage of portfolio (0-10)'
+              },
+              stopLoss: {
+                type: 'number',
+                description: 'Stop loss percentage below entry (1-20)'
+              },
+              takeProfit: {
+                type: 'number',
+                description: 'Take profit percentage above entry (1-50)'
+              },
+              riskScore: {
+                type: 'number',
+                description: 'Risk score 1-10 where 10 is highest risk'
+              },
+              expectedReturn: {
+                type: 'number',
+                description: 'Expected return percentage'
+              },
+              timeHorizon: {
+                type: 'string',
+                enum: ['scalp', 'intraday', 'swing', 'position'],
+                description: 'Recommended time horizon for the trade'
               }
-            }
+            },
+            required: ['action', 'confidence', 'reasoning', 'positionSize', 'stopLoss', 'takeProfit', 'riskScore', 'expectedReturn', 'timeHorizon'],
+            additionalProperties: false
           }
-        ],
-        tool_choice: { type: 'function', function: { name: 'make_trading_decision' } }
-      }),
-    });
+        }
+      }
+    ];
+
+    const { response: aiResponse, model, usedFallback } = await fetchWithModelFallback(
+      LOVABLE_API_KEY,
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      {
+        tools,
+        tool_choice: { type: 'function', function: { name: 'make_trading_decision' } },
+        config: { timeoutMs: 15000 }
+      }
+    );
+
+    console.log(`AI Strategy Engine using ${model}${usedFallback ? ' (fallback)' : ''}`);
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {
