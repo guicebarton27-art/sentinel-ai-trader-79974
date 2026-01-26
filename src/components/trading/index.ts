@@ -2,6 +2,13 @@
 // This barrel export groups related components for cleaner imports
 
 // ============================================
+// Quick Start & Simplified UX
+// ============================================
+export { QuickStartWizard } from './QuickStartWizard';
+export { SimplifiedDashboard } from './SimplifiedDashboard';
+export { MobileNavBar } from './MobileNavBar';
+
+// ============================================
 // ML & Intelligence (AI-powered analysis)
 // ============================================
 export * from './ml';
