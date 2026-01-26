@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { fetchWithModelFallback } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -176,24 +177,30 @@ Then provide:
 - Rebalancing Needed: [yes/no]
 - Key Actions: [bullet points of recommended changes]`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: 'You are an expert quantitative portfolio manager specializing in strategy selection, allocation optimization, and meta-learning for trading systems.' },
-          { role: 'user', content: prompt }
-        ],
-      }),
-    });
+    const { response, model, usedFallback } = await fetchWithModelFallback(
+      LOVABLE_API_KEY,
+      [
+        { role: 'system', content: 'You are an expert quantitative portfolio manager specializing in strategy selection, allocation optimization, and meta-learning for trading systems.' },
+        { role: 'user', content: prompt }
+      ],
+      { config: { timeoutMs: 15000 } }
+    );
 
     if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: 'Rate limit exceeded, please try again later' }), {
+          status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: 'AI credits exhausted, please add funds' }), {
+          status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
       throw new Error(`AI API error: ${response.status}`);
     }
+
+    console.log(`Meta-learner using ${model}${usedFallback ? ' (fallback)' : ''}`);
 
     const data = await response.json();
     const analysis = data.choices[0].message.content;

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { fetchWithModelFallback } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -176,20 +177,14 @@ Provide comprehensive risk assessment:
 
 Use quantitative risk models and market regime analysis.`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: 'You are an expert quantitative risk analyst specializing in cryptocurrency risk management and portfolio protection.' },
-          { role: 'user', content: prompt }
-        ],
-      }),
-    });
+    const { response, model, usedFallback: modelFallback } = await fetchWithModelFallback(
+      LOVABLE_API_KEY,
+      [
+        { role: 'system', content: 'You are an expert quantitative risk analyst specializing in cryptocurrency risk management and portfolio protection.' },
+        { role: 'user', content: prompt }
+      ],
+      { config: { timeoutMs: 15000 } }
+    );
 
     let analysis = '';
     let usedFallback = false;
@@ -229,6 +224,7 @@ Use quantitative risk models and market regime analysis.`;
     } else {
       const data = await response.json();
       analysis = data.choices[0].message.content;
+      console.log(`ML risk analysis using ${model}${modelFallback ? ' (fallback)' : ''}`);
     }
     
     console.log('ML risk analysis:', usedFallback ? '(fallback)' : '(AI)', analysis.slice(0, 150));
