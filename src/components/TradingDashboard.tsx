@@ -20,10 +20,15 @@ import {
   Bot,
   Wallet,
   AlertOctagon,
-  TestTube
+  TestTube,
+  Sparkles
 } from 'lucide-react';
 // Trading Components - Grouped by Domain
 import {
+  // Quick Start
+  QuickStartWizard,
+  SimplifiedDashboard,
+  MobileNavBar,
   // ML & Intelligence
   MLSentimentPanel,
   MLPricePrediction,
@@ -64,12 +69,16 @@ import {
   ApiKeyManager,
 } from './trading';
 import { useBotController } from '@/hooks/useBotController';
+import { useFirstTimeUser } from '@/hooks/useFirstTimeUser';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 export const TradingDashboard = () => {
   const [minimalMode, setMinimalMode] = useState(false);
+  const [simpleMode, setSimpleMode] = useState(true);
+  const [mobileTab, setMobileTab] = useState('home');
   const [currentTime, setCurrentTime] = useState(new Date());
   const { 
     activeBot, 
@@ -81,8 +90,11 @@ export const TradingDashboard = () => {
     startBot,
     pauseBot,
     stopBot,
-    killBot
+    killBot,
+    createBot
   } = useBotController();
+  const { isFirstTime, isLoading: wizardLoading, markWizardComplete } = useFirstTimeUser();
+  const isMobile = useIsMobile();
   const { toast } = useToast();
   const navigate = useNavigate();
   
@@ -242,6 +254,89 @@ export const TradingDashboard = () => {
     }
   };
 
+  // Handle wizard completion
+  const handleWizardComplete = async (config: any) => {
+    try {
+      // Create a new bot with the wizard config
+      const strategyMap = {
+        conservative: 'trend_following',
+        moderate: 'trend_following',
+        aggressive: 'momentum_breakout',
+      };
+      
+      await createBot({
+        name: 'My Trading Bot',
+        symbol: 'BTC/USD',
+        strategy_id: strategyMap[config.strategy as keyof typeof strategyMap],
+        mode: 'paper',
+        risk_params: {
+          starting_capital: config.capital,
+          stop_loss_pct: config.stopLoss,
+          take_profit_pct: config.takeProfit,
+        },
+      });
+      
+      markWizardComplete();
+      
+      toast({
+        title: 'Bot Created!',
+        description: 'Your trading bot is ready. Click Start to begin paper trading.',
+      });
+    } catch (error) {
+      console.error('Failed to create bot:', error);
+      markWizardComplete();
+    }
+  };
+
+  const handleWizardSkip = () => {
+    markWizardComplete();
+  };
+
+  // Calculate risk level based on position size
+  const riskLevel = riskMetrics.positionSize > riskMetrics.positionLimit * 0.8 
+    ? 'high' 
+    : riskMetrics.positionSize > riskMetrics.positionLimit * 0.5 
+      ? 'medium' 
+      : 'low';
+
+  // Show wizard for first-time users
+  if (!wizardLoading && isFirstTime) {
+    return (
+      <QuickStartWizard 
+        onComplete={handleWizardComplete} 
+        onSkip={handleWizardSkip} 
+      />
+    );
+  }
+
+  // Show simplified dashboard on mobile or when simple mode is enabled
+  if (isMobile && simpleMode) {
+    return (
+      <>
+        <SimplifiedDashboard
+          botStatus={botStatus as 'stopped' | 'running' | 'paused' | 'error'}
+          portfolioValue={portfolioData.totalValue}
+          dailyPnl={portfolioData.pnl}
+          dailyPnlPercent={portfolioData.pnlPercentage}
+          riskLevel={riskLevel}
+          openPositions={openPositions.length}
+          winRate={activeBot?.total_trades ? Math.round((activeBot.winning_trades / activeBot.total_trades) * 100) : 0}
+          onStart={() => handleBotControl('start', 'paper')}
+          onPause={() => handleBotControl('pause')}
+          onStop={() => handleBotControl('stop')}
+          onViewDetails={() => setSimpleMode(false)}
+        />
+        <MobileNavBar 
+          activeTab={mobileTab} 
+          onTabChange={(tab) => {
+            setMobileTab(tab);
+            if (tab !== 'home') setSimpleMode(false);
+          }} 
+        />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Animated Background */}
@@ -282,6 +377,15 @@ export const TradingDashboard = () => {
                   {currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </div>
               </div>
+
+              {/* Simple Mode Toggle (Desktop) */}
+              {!isMobile && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <span className="text-xs text-muted-foreground hidden sm:inline">Simple</span>
+                  <Switch checked={simpleMode} onCheckedChange={setSimpleMode} className="scale-90" />
+                </div>
+              )}
 
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30">
                 <Minimize2 className="h-4 w-4 text-muted-foreground" />
