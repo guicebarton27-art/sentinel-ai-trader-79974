@@ -67,6 +67,9 @@ import {
   // System
   SystemStatusWidget,
   ApiKeyManager,
+  // Monitoring
+  RunStatusPanel,
+  AlertsWidget,
 } from './trading';
 import { useBotController } from '@/hooks/useBotController';
 import { useFirstTimeUser } from '@/hooks/useFirstTimeUser';
@@ -430,6 +433,9 @@ export const TradingDashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-6 space-y-6 pb-28">
+        {/* Active Alerts Widget */}
+        <AlertsWidget />
+        
         {/* Critical Panel */}
         <CriticalPanel
           portfolioPnl={portfolioData.pnl}
@@ -592,12 +598,20 @@ export const TradingDashboard = () => {
           <TabsContent value="settings" className="space-y-6 animate-in fade-in-50 duration-300">
             <div className="grid lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
-                <BacktestPanel />
+                <BotControls />
               </div>
-              <SystemStatusWidget />
+              <div className="space-y-6">
+                <RunStatusPanel 
+                  botId={activeBot?.id || null} 
+                  botName={activeBot?.name}
+                  botMode={activeBot?.mode}
+                  botStatus={activeBot?.status}
+                />
+                <SystemStatusWidget />
+              </div>
             </div>
             <ApiKeyManager />
-            <BotControls />
+            <BacktestPanel />
           </TabsContent>
         </Tabs>
       </main>
