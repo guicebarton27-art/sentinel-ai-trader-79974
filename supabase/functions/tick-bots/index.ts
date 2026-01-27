@@ -15,6 +15,7 @@ const corsHeaders = {
 interface Bot {
   id: string;
   user_id: string;
+  name: string;
   status: string;
   mode: 'paper' | 'live';
   symbol: string;
@@ -909,12 +910,15 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
     });
 
     // Log error and increment error count
+    const newErrorCount = (bot.error_count || 0) + 1;
+    const shouldTriggerAlert = newErrorCount >= 3 && newErrorCount % 3 === 0; // Alert every 3 consecutive errors
+    
     await supabase
       .from('bots')
       .update({
-        error_count: (bot.error_count || 0) + 1,
+        error_count: newErrorCount,
         last_error: error.message,
-        status: (bot.error_count || 0) >= 5 ? 'error' : bot.status,
+        status: newErrorCount >= 5 ? 'error' : bot.status,
       } as unknown)
       .eq('id', bot.id);
 
@@ -927,6 +931,23 @@ async function processBotTick(supabase: SupabaseClient, bot: Bot): Promise<void>
       'error',
       { error: error.message, stack: error.stack }
     );
+
+    // Create alert on repeated failures
+    if (shouldTriggerAlert) {
+      await supabase.from('alerts').insert({
+        user_id: bot.user_id,
+        bot_id: bot.id,
+        alert_type: 'repeated_failures',
+        severity: newErrorCount >= 5 ? 'critical' : 'warning',
+        title: `Bot "${bot.name}" experiencing repeated failures`,
+        message: `${newErrorCount} consecutive errors detected. Latest: ${error.message}`,
+        metadata: { 
+          error_count: newErrorCount, 
+          last_error: error.message,
+          bot_status: newErrorCount >= 5 ? 'error' : bot.status 
+        },
+      });
+    }
 
     // Update bot_runs with error
     await upsertBotRun(supabase, bot, 0, true);

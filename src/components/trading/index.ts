@@ -54,6 +54,12 @@ export * from './backtest';
 export * from './system';
 
 // ============================================
+// Monitoring (run status and alerts)
+// ============================================
+export { RunStatusPanel } from './RunStatusPanel';
+export { AlertsWidget } from './AlertsWidget';
+
+// ============================================
 // Shared UI (loading, error states)
 // ============================================
 export * from './shared';
