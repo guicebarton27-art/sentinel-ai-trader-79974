@@ -53,10 +53,10 @@ export const CriticalPanel = ({
               portfolioPnl > 0 ? 'text-success' : 'text-destructive'
             }`}>
               {portfolioPnl > 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-              {portfolioPnl > 0 ? '+' : ''}{portfolioPnlPercentage}%
+              {portfolioPnl > 0 ? '+' : ''}{Number(portfolioPnlPercentage).toFixed(2)}%
             </div>
-            <p className="text-xs text-muted-foreground">
-              Total: {totalPnlPercentage > 0 ? '+' : ''}{totalPnlPercentage}%
+            <p className="text-xs text-muted-foreground truncate">
+              Total: {totalPnlPercentage > 0 ? '+' : ''}{Number(totalPnlPercentage).toFixed(2)}%
             </p>
           </div>
 
@@ -64,7 +64,7 @@ export const CriticalPanel = ({
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground font-medium">Current DD</p>
             <div className="text-lg font-bold text-destructive">
-              -{currentDrawdown}%
+              -{Number(currentDrawdown).toFixed(2)}%
             </div>
             <div className="w-full bg-muted rounded-full h-1.5">
               <div 
