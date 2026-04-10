@@ -17,6 +17,88 @@ interface AlertRequest {
   channels?: ('database' | 'webhook' | 'email')[];
 }
 
+// Dispatch webhooks to configured endpoints (Slack, Discord, custom)
+async function dispatchWebhooks(alert: AlertRequest, alertId: string): Promise<{ sent: string[]; failed: string[] }> {
+  const sent: string[] = [];
+  const failed: string[] = [];
+
+  const severityEmoji: Record<string, string> = {
+    emergency: '🚨',
+    critical: '🔴',
+    warning: '⚠️',
+    info: 'ℹ️',
+  };
+  const emoji = severityEmoji[alert.severity] || '📢';
+
+  // Generic / Slack webhook
+  const webhookUrl = Deno.env.get('ALERT_WEBHOOK_URL') || Deno.env.get('SLACK_WEBHOOK_URL');
+  if (webhookUrl) {
+    try {
+      const payload = {
+        text: `${emoji} *[${alert.severity.toUpperCase()}] ${alert.title}*\n${alert.message}\n_Alert ID: ${alertId}_`,
+      };
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        sent.push('slack/webhook');
+      } else {
+        const body = await res.text();
+        console.error('Webhook failed:', res.status, body);
+        failed.push('slack/webhook');
+      }
+    } catch (err) {
+      console.error('Webhook error:', (err as Error).message);
+      failed.push('slack/webhook');
+    }
+  }
+
+  // Discord webhook
+  const discordUrl = Deno.env.get('DISCORD_WEBHOOK_URL');
+  if (discordUrl) {
+    try {
+      const colorMap: Record<string, number> = {
+        emergency: 0xff0000,
+        critical: 0xe74c3c,
+        warning: 0xf39c12,
+        info: 0x3498db,
+      };
+      const payload = {
+        embeds: [{
+          title: `${emoji} ${alert.title}`,
+          description: alert.message,
+          color: colorMap[alert.severity] || 0x95a5a6,
+          footer: { text: `Alert ID: ${alertId} | Severity: ${alert.severity}` },
+          timestamp: new Date().toISOString(),
+        }],
+      };
+      const res = await fetch(discordUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok || res.status === 204) {
+        sent.push('discord');
+      } else {
+        const body = await res.text();
+        console.error('Discord webhook failed:', res.status, body);
+        failed.push('discord');
+      }
+    } catch (err) {
+      console.error('Discord webhook error:', (err as Error).message);
+      failed.push('discord');
+    }
+  }
+
+  if (!webhookUrl && !discordUrl) {
+    console.log('No webhook URLs configured (ALERT_WEBHOOK_URL, SLACK_WEBHOOK_URL, DISCORD_WEBHOOK_URL)');
+  }
+
+  return { sent, failed };
+}
+
 // Authenticate user and check role - Trader/Admin for alert system
 async function authenticateUser(req: Request) {
   const authHeader = req.headers.get('Authorization');
@@ -94,10 +176,10 @@ serve(async (req) => {
 
           console.log('Alert created:', data.id);
 
-          // For critical/emergency alerts, we could send webhooks
-          if (channels.includes('webhook') && (alert.severity === 'critical' || alert.severity === 'emergency')) {
-            // Webhook integration would go here
-            console.log('Would send webhook for critical alert:', alert.title);
+          // Dispatch webhooks for critical/emergency alerts
+          if (alert.severity === 'critical' || alert.severity === 'emergency' || channels.includes('webhook')) {
+            const webhookResults = await dispatchWebhooks(alert, data.id);
+            console.log('Webhook dispatch results:', webhookResults);
           }
 
           return new Response(
