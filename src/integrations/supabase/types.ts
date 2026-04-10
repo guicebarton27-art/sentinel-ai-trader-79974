@@ -14,6 +14,56 @@ export type Database = {
   }
   public: {
     Tables: {
+      alerts: {
+        Row: {
+          acknowledged: boolean | null
+          acknowledged_at: string | null
+          alert_type: string
+          bot_id: string | null
+          created_at: string
+          id: string
+          message: string
+          metadata: Json | null
+          severity: string
+          title: string
+          user_id: string | null
+        }
+        Insert: {
+          acknowledged?: boolean | null
+          acknowledged_at?: string | null
+          alert_type: string
+          bot_id?: string | null
+          created_at?: string
+          id?: string
+          message: string
+          metadata?: Json | null
+          severity: string
+          title: string
+          user_id?: string | null
+        }
+        Update: {
+          acknowledged?: boolean | null
+          acknowledged_at?: string | null
+          alert_type?: string
+          bot_id?: string | null
+          created_at?: string
+          id?: string
+          message?: string
+          metadata?: Json | null
+          severity?: string
+          title?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alerts_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       api_keys: {
         Row: {
           created_at: string
@@ -47,6 +97,87 @@ export type Database = {
           key_name?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      arbitrage_opportunities: {
+        Row: {
+          buy_exchange: string
+          buy_price: number
+          closed_at: string | null
+          created_at: string
+          detected_at: string
+          estimated_profit: number
+          exchanges: string[]
+          executed_at: string | null
+          execution_details: Json | null
+          expires_at: string
+          fees_estimate: number
+          funding_rate_data: Json | null
+          hedge_details: Json | null
+          hedge_status: string | null
+          id: string
+          net_profit: number
+          opportunity_type: string
+          sell_exchange: string
+          sell_price: number
+          spread_percentage: number
+          status: string
+          symbol: string
+          user_id: string
+          volume_available: number
+        }
+        Insert: {
+          buy_exchange: string
+          buy_price: number
+          closed_at?: string | null
+          created_at?: string
+          detected_at?: string
+          estimated_profit: number
+          exchanges: string[]
+          executed_at?: string | null
+          execution_details?: Json | null
+          expires_at?: string
+          fees_estimate?: number
+          funding_rate_data?: Json | null
+          hedge_details?: Json | null
+          hedge_status?: string | null
+          id?: string
+          net_profit: number
+          opportunity_type?: string
+          sell_exchange: string
+          sell_price: number
+          spread_percentage: number
+          status?: string
+          symbol: string
+          user_id: string
+          volume_available: number
+        }
+        Update: {
+          buy_exchange?: string
+          buy_price?: number
+          closed_at?: string | null
+          created_at?: string
+          detected_at?: string
+          estimated_profit?: number
+          exchanges?: string[]
+          executed_at?: string | null
+          execution_details?: Json | null
+          expires_at?: string
+          fees_estimate?: number
+          funding_rate_data?: Json | null
+          hedge_details?: Json | null
+          hedge_status?: string | null
+          id?: string
+          net_profit?: number
+          opportunity_type?: string
+          sell_exchange?: string
+          sell_price?: number
+          spread_percentage?: number
+          status?: string
+          symbol?: string
+          user_id?: string
+          volume_available?: number
         }
         Relationships: []
       }
@@ -97,6 +228,7 @@ export type Database = {
           equity: number
           id: string
           timestamp: number
+          user_id: string | null
         }
         Insert: {
           backtest_run_id: string
@@ -105,6 +237,7 @@ export type Database = {
           equity: number
           id?: string
           timestamp: number
+          user_id?: string | null
         }
         Update: {
           backtest_run_id?: string
@@ -113,6 +246,7 @@ export type Database = {
           equity?: number
           id?: string
           timestamp?: number
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -149,6 +283,7 @@ export type Database = {
           symbol: string
           total_return: number
           total_trades: number
+          user_id: string | null
           walk_forward_analysis: Json | null
           win_rate: number
           winning_trades: number
@@ -177,6 +312,7 @@ export type Database = {
           symbol: string
           total_return: number
           total_trades: number
+          user_id?: string | null
           walk_forward_analysis?: Json | null
           win_rate: number
           winning_trades: number
@@ -205,6 +341,7 @@ export type Database = {
           symbol?: string
           total_return?: number
           total_trades?: number
+          user_id?: string | null
           walk_forward_analysis?: Json | null
           win_rate?: number
           winning_trades?: number
@@ -225,6 +362,7 @@ export type Database = {
           side: string
           signal_strength: number | null
           size: number
+          user_id: string | null
         }
         Insert: {
           backtest_run_id: string
@@ -239,6 +377,7 @@ export type Database = {
           side: string
           signal_strength?: number | null
           size: number
+          user_id?: string | null
         }
         Update: {
           backtest_run_id?: string
@@ -253,6 +392,7 @@ export type Database = {
           side?: string
           signal_strength?: number | null
           size?: number
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -550,6 +690,122 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      funding_rates: {
+        Row: {
+          created_at: string
+          exchange: string
+          funding_rate: number
+          id: string
+          index_price: number | null
+          mark_price: number | null
+          next_funding_time: string | null
+          open_interest: number | null
+          predicted_rate: number | null
+          symbol: string
+        }
+        Insert: {
+          created_at?: string
+          exchange: string
+          funding_rate: number
+          id?: string
+          index_price?: number | null
+          mark_price?: number | null
+          next_funding_time?: string | null
+          open_interest?: number | null
+          predicted_rate?: number | null
+          symbol: string
+        }
+        Update: {
+          created_at?: string
+          exchange?: string
+          funding_rate?: number
+          id?: string
+          index_price?: number | null
+          mark_price?: number | null
+          next_funding_time?: string | null
+          open_interest?: number | null
+          predicted_rate?: number | null
+          symbol?: string
+        }
+        Relationships: []
+      }
+      hedge_positions: {
+        Row: {
+          arbitrage_id: string | null
+          closed_at: string | null
+          created_at: string
+          funding_collected: number | null
+          id: string
+          long_current_price: number | null
+          long_entry_price: number
+          long_exchange: string
+          long_size: number
+          opened_at: string
+          realized_pnl: number | null
+          short_current_price: number | null
+          short_entry_price: number
+          short_exchange: string
+          short_size: number
+          status: string
+          symbol: string
+          unrealized_pnl: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          arbitrage_id?: string | null
+          closed_at?: string | null
+          created_at?: string
+          funding_collected?: number | null
+          id?: string
+          long_current_price?: number | null
+          long_entry_price: number
+          long_exchange: string
+          long_size: number
+          opened_at?: string
+          realized_pnl?: number | null
+          short_current_price?: number | null
+          short_entry_price: number
+          short_exchange: string
+          short_size: number
+          status?: string
+          symbol: string
+          unrealized_pnl?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          arbitrage_id?: string | null
+          closed_at?: string | null
+          created_at?: string
+          funding_collected?: number | null
+          id?: string
+          long_current_price?: number | null
+          long_entry_price?: number
+          long_exchange?: string
+          long_size?: number
+          opened_at?: string
+          realized_pnl?: number | null
+          short_current_price?: number | null
+          short_entry_price?: number
+          short_exchange?: string
+          short_size?: number
+          status?: string
+          symbol?: string
+          unrealized_pnl?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hedge_positions_arbitrage_id_fkey"
+            columns: ["arbitrage_id"]
+            isOneToOne: false
+            referencedRelation: "arbitrage_opportunities"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       historical_candles: {
         Row: {
