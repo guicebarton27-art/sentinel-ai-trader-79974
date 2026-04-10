@@ -45,6 +45,7 @@ import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { AutoMLAgent } from './trading/AutoMLAgent';
 import { SystemStatusWidget } from './trading/SystemStatusWidget';
 import { LiveTradesFeed } from './trading/LiveTradesFeed';
+import { ProfitabilityBlueprint } from './trading/ProfitabilityBlueprint';
 import { DemoDataToggle } from './trading/DemoDataToggle';
 import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
