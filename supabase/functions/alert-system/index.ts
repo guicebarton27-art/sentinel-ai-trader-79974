@@ -94,10 +94,10 @@ serve(async (req) => {
 
           console.log('Alert created:', data.id);
 
-          // For critical/emergency alerts, we could send webhooks
-          if (channels.includes('webhook') && (alert.severity === 'critical' || alert.severity === 'emergency')) {
-            // Webhook integration would go here
-            console.log('Would send webhook for critical alert:', alert.title);
+          // Dispatch webhooks for critical/emergency alerts
+          if (alert.severity === 'critical' || alert.severity === 'emergency' || channels.includes('webhook')) {
+            const webhookResults = await dispatchWebhooks(alert, data.id);
+            console.log('Webhook dispatch results:', webhookResults);
           }
 
           return new Response(
