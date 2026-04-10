@@ -280,7 +280,7 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
     try {
       const result = await runConnectivityCheck(activeBot.id);
       if (!result.success) {
-        throw new Error(result.error?.message || 'Connectivity check failed');
+        throw new Error((result.error as { message?: string })?.message || 'Connectivity check failed');
       }
       toast({
         title: 'Connectivity Check Passed',
@@ -300,7 +300,7 @@ export const BotControls = ({ onStatusChange }: BotControlsProps) => {
     try {
       const result = await runDryRun(activeBot.id);
       if (!result.success) {
-        throw new Error(result.error?.message || 'Dry-run failed');
+        throw new Error((result.error as { message?: string })?.message || 'Dry-run failed');
       }
       toast({
         title: 'Dry-run Submitted',
