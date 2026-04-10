@@ -45,7 +45,7 @@ import { PortfolioOptimizer } from './trading/PortfolioOptimizer';
 import { AutoMLAgent } from './trading/AutoMLAgent';
 import { SystemStatusWidget } from './trading/SystemStatusWidget';
 import { LiveTradesFeed } from './trading/LiveTradesFeed';
-import { ProfitabilityBlueprint } from './trading/ProfitabilityBlueprint';
+import { DemoDataToggle } from './trading/DemoDataToggle';
 import { useBotController } from '@/hooks/useBotController';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -451,7 +451,10 @@ export const TradingDashboard = () => {
               <div className="lg:col-span-2">
                 <BacktestPanel />
               </div>
-              <SystemStatusWidget />
+              <div className="space-y-6">
+                <SystemStatusWidget />
+                <DemoDataToggle />
+              </div>
             </div>
             <ApiKeyManager />
             <BotControls />
